@@ -1,0 +1,26 @@
+{
+  "name": "interstellar-spark-odyssey",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "A browser-based 3D space-flight experience using Three.js + Spark.js + World Labs.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "worlds:generate": "tsx scripts/generate-worlds.ts",
+    "worlds:mock": "tsx scripts/generate-worlds.ts --mock",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
+  },
+  "dependencies": {
+    "@sparkjsdev/spark": "^2.0.0",
+    "three": "~0.180.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "@types/three": "~0.180.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.10"
+  }
+}

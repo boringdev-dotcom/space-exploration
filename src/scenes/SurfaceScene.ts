@@ -1,0 +1,323 @@
+import * as THREE from "three";
+import { PointerLockControls } from "three/examples/jsm/controls/PointerLockControls.js";
+import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
+
+import type { SceneSlot } from "./Scene";
+import type { Planet } from "../data/planets";
+
+export type SurfaceStatus =
+  | "idle"
+  | "loading"
+  | "ready"
+  | "error";
+
+type LockListener = (locked: boolean) => void;
+
+/**
+ * Surface exploration scene — loads a Gaussian splat world via Spark.js
+ * and lets the user walk around with first-person controls.
+ */
+export class SurfaceScene implements SceneSlot {
+  readonly scene = new THREE.Scene();
+  readonly camera: THREE.PerspectiveCamera;
+
+  private spark: SparkRenderer;
+  private canvas: HTMLCanvasElement;
+  private controls: PointerLockControls;
+
+  private splat: SplatMesh | null = null;
+  private _status: SurfaceStatus = "idle";
+  private _progress = 0;
+  private lockListeners: LockListener[] = [];
+
+  private moveForward = false;
+  private moveBackward = false;
+  private moveLeft = false;
+  private moveRight = false;
+  private moveUp = false;
+  private moveDown = false;
+  private sprint = false;
+
+  // Smooth movement model (ported from gaussian-splat-character-controller).
+  // Velocity is lerped toward the desired direction every frame using a
+  // frame-rate-independent factor `1 - pow(smoothing, 0.116)`. Higher
+  // `velocityXZSmoothing` = floatier; `accelerationTimeGrounded` further
+  // damps the response to avoid jitter on quick taps.
+  private readonly walkSpeed = 4.5;
+  private readonly sprintMul = 2.2;
+  private readonly verticalSpeed = 3.0;
+  private readonly velocityXZSmoothing = 0.08;
+  private readonly accelerationTimeGrounded = 0.025;
+  private readonly velocityMin = 0.0001;
+  private readonly horizontalVelocity = new THREE.Vector3();
+  private verticalVelocity = 0;
+
+  // Sprint FOV ramp.
+  private readonly normalFov = 70;
+  private readonly sprintFov = 78;
+
+  // Eye height above the splat's scan origin. Marble's Y origin sits roughly
+  // at the scanner's lens; a small lift puts you closer to a "standing"
+  // perspective.
+  private readonly eyeHeight = 0.4;
+
+  // Reusable scratch vectors so we don't allocate per-frame.
+  private readonly _camDir = new THREE.Vector3();
+  private readonly _moveTarget = new THREE.Vector3();
+  private readonly _up = new THREE.Vector3(0, 1, 0);
+
+  constructor(spark: SparkRenderer, canvas: HTMLCanvasElement) {
+    this.spark = spark;
+    this.canvas = canvas;
+
+    // Marble worlds are panoramic environments scanned from a single viewpoint —
+    // camera + splat both live at the origin so the user is "inside" the world.
+    this.camera = new THREE.PerspectiveCamera(
+      this.normalFov,
+      window.innerWidth / window.innerHeight,
+      0.02,
+      400,
+    );
+    this.camera.position.set(0, this.eyeHeight, 0);
+
+    // No additional lighting or fog: Marble worlds bake their own lighting
+    // and atmospheric haze into the splat colours. Adding scene lights or fog
+    // would only desaturate / dim the photoreal output.
+
+    // Add the spark renderer to this scene (only the surface uses splats).
+    this.scene.add(this.spark);
+
+    this.controls = new PointerLockControls(this.camera, canvas);
+    // Match the look feel of the reference character controller.
+    this.controls.pointerSpeed = 0.7;
+
+    this.controls.addEventListener("lock", () => this.emitLock(true));
+    this.controls.addEventListener("unlock", () => this.emitLock(false));
+
+    window.addEventListener("keydown", this.onKeyDown);
+    window.addEventListener("keyup", this.onKeyUp);
+  }
+
+  enter(): void {}
+
+  exit(): void {
+    if (this.controls.isLocked) {
+      this.controls.unlock();
+    }
+  }
+
+  /** Load the planet's splat. Re-callable for new destinations. */
+  async loadPlanet(planet: Planet): Promise<void> {
+    this._status = "loading";
+    this._progress = 0;
+
+    if (this.splat) {
+      this.scene.remove(this.splat);
+      this.splat.dispose?.();
+      this.splat = null;
+    }
+
+    // Recenter the viewer at the splat's origin viewpoint and zero motion.
+    this.camera.position.set(0, this.eyeHeight, 0);
+    this.camera.rotation.set(0, 0, 0);
+    this.camera.fov = this.normalFov;
+    this.camera.updateProjectionMatrix();
+    this.horizontalVelocity.set(0, 0, 0);
+    this.verticalVelocity = 0;
+
+    try {
+      const splat = new SplatMesh({
+        url: planet.splatUrl,
+        onProgress: (e: ProgressEvent) => {
+          if (e.total > 0) {
+            this._progress = Math.min(0.99, e.loaded / e.total);
+          }
+        },
+      });
+      // Canonical "right-side-up" form used by Spark's official viewer.
+      // Quaternion (1, 0, 0, 0) is a 180° rotation around X — Marble splats
+      // are exported Y-down, so this flips them upright.
+      splat.quaternion.set(1, 0, 0, 0);
+      splat.position.set(0, 0, 0);
+      splat.scale.setScalar(1.0);
+      // Hidden until initialized so the user doesn't see a half-streamed scene.
+      splat.visible = false;
+      this.scene.add(splat);
+      this.splat = splat;
+
+      await splat.initialized;
+      splat.visible = true;
+      this._progress = 1;
+      this._status = "ready";
+      void planet;
+    } catch (err) {
+      console.error("[SurfaceScene] failed to load splat", err);
+      this._status = "error";
+    }
+  }
+
+  update(delta: number, _elapsed: number): void {
+    // Lerp factor based on `velocityXZSmoothing * accelerationTimeGrounded`.
+    // The exponent 0.116 is what the reference controller uses to make the
+    // response identical regardless of frame rate.
+    const lerpFactor =
+      1 -
+      Math.pow(
+        this.velocityXZSmoothing * this.accelerationTimeGrounded,
+        0.116,
+      );
+
+    if (!this.controls.isLocked) {
+      // Smoothly decelerate to zero when not actively driving — no sudden snap.
+      this.horizontalVelocity.lerp(this._moveTarget.set(0, 0, 0), lerpFactor);
+      this.verticalVelocity = THREE.MathUtils.lerp(this.verticalVelocity, 0, lerpFactor);
+    } else {
+      // Build a unit input vector in camera-yaw space.
+      // (front: +z when forward, side: +x when left, then rotated by yaw.)
+      const fz = Number(this.moveBackward) - Number(this.moveForward);
+      const fx = Number(this.moveLeft) - Number(this.moveRight);
+      const fy = Number(this.moveUp) - Number(this.moveDown);
+
+      const speed = this.walkSpeed * (this.sprint ? this.sprintMul : 1);
+
+      this._moveTarget.set(fx, 0, fz);
+      if (this._moveTarget.lengthSq() > 0) this._moveTarget.normalize();
+      this._moveTarget.multiplyScalar(speed);
+
+      this.camera.getWorldDirection(this._camDir);
+      const cameraYaw = Math.atan2(this._camDir.x, this._camDir.z);
+      this._moveTarget.applyAxisAngle(this._up, cameraYaw).multiplyScalar(-1);
+
+      this.horizontalVelocity.lerp(this._moveTarget, lerpFactor);
+
+      const targetVerticalVelocity = fy * this.verticalSpeed;
+      this.verticalVelocity = THREE.MathUtils.lerp(
+        this.verticalVelocity,
+        targetVerticalVelocity,
+        lerpFactor,
+      );
+    }
+
+    // Snap to zero below threshold to avoid endless tiny drift.
+    if (Math.abs(this.horizontalVelocity.x) < this.velocityMin) this.horizontalVelocity.x = 0;
+    if (Math.abs(this.horizontalVelocity.z) < this.velocityMin) this.horizontalVelocity.z = 0;
+    if (Math.abs(this.verticalVelocity) < this.velocityMin) this.verticalVelocity = 0;
+
+    // Apply translation in world space directly on the camera.
+    this.camera.position.x += this.horizontalVelocity.x * delta;
+    this.camera.position.z += this.horizontalVelocity.z * delta;
+    this.camera.position.y += this.verticalVelocity * delta;
+
+    // FOV ramp: lerp toward sprintFov when sprinting + moving.
+    const horizontalSpeed = Math.hypot(this.horizontalVelocity.x, this.horizontalVelocity.z);
+    const targetFov = this.sprint && horizontalSpeed > 0.5 ? this.sprintFov : this.normalFov;
+    const fovT = Math.min(1, delta * 8);
+    if (Math.abs(this.camera.fov - targetFov) > 0.01) {
+      this.camera.fov = THREE.MathUtils.lerp(this.camera.fov, targetFov, fovT);
+      this.camera.updateProjectionMatrix();
+    }
+  }
+
+  resize(width: number, height: number): void {
+    this.camera.aspect = width / height;
+    this.camera.updateProjectionMatrix();
+  }
+
+  dispose(): void {
+    window.removeEventListener("keydown", this.onKeyDown);
+    window.removeEventListener("keyup", this.onKeyUp);
+    if (this.splat) {
+      this.scene.remove(this.splat);
+      this.splat.dispose?.();
+    }
+  }
+
+  /* Status surfacing */
+  get status(): SurfaceStatus {
+    return this._status;
+  }
+  get progress(): number {
+    return this._progress;
+  }
+
+  /* Pointer lock plumbing for the HUD */
+
+  requestPointerLock(): void {
+    if (!this.controls.isLocked) {
+      this.canvas.focus();
+      this.controls.lock();
+    }
+  }
+
+  onLockChange(cb: LockListener): void {
+    this.lockListeners.push(cb);
+  }
+
+  private emitLock(locked: boolean): void {
+    this.lockListeners.forEach((cb) => cb(locked));
+  }
+
+  private readonly onKeyDown = (e: KeyboardEvent): void => {
+    switch (e.code) {
+      case "KeyW":
+      case "ArrowUp":
+        this.moveForward = true;
+        break;
+      case "KeyS":
+      case "ArrowDown":
+        this.moveBackward = true;
+        break;
+      case "KeyA":
+      case "ArrowLeft":
+        this.moveLeft = true;
+        break;
+      case "KeyD":
+      case "ArrowRight":
+        this.moveRight = true;
+        break;
+      case "Space":
+        this.moveUp = true;
+        break;
+      case "ShiftLeft":
+      case "ShiftRight":
+        this.sprint = true;
+        break;
+      case "ControlLeft":
+      case "ControlRight":
+        this.moveDown = true;
+        break;
+    }
+  };
+
+  private readonly onKeyUp = (e: KeyboardEvent): void => {
+    switch (e.code) {
+      case "KeyW":
+      case "ArrowUp":
+        this.moveForward = false;
+        break;
+      case "KeyS":
+      case "ArrowDown":
+        this.moveBackward = false;
+        break;
+      case "KeyA":
+      case "ArrowLeft":
+        this.moveLeft = false;
+        break;
+      case "KeyD":
+      case "ArrowRight":
+        this.moveRight = false;
+        break;
+      case "Space":
+        this.moveUp = false;
+        break;
+      case "ShiftLeft":
+      case "ShiftRight":
+        this.sprint = false;
+        break;
+      case "ControlLeft":
+      case "ControlRight":
+        this.moveDown = false;
+        break;
+    }
+  };
+}
