@@ -23,6 +23,7 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
   const params = new URLSearchParams(window.location.search);
   const forceOn = params.has("debug") || params.has("d");
   const alignOn = params.has("align") || params.has("alignment");
+
   const startVisible = forceOn;
 
   const root = document.createElement("div");
