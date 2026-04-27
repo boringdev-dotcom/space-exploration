@@ -34,9 +34,11 @@ export class SceneManager {
   private readonly spark: SparkRenderer;
   private readonly post: PostFx;
 
-  private readonly launch: LaunchScene;
-  private readonly flight: FlightScene;
-  private readonly surface: SurfaceScene;
+  // Public for the debug HUD so it can identify which scene is rendering
+  // without us having to thread state/slot identity through manager methods.
+  readonly launch: LaunchScene;
+  readonly flight: FlightScene;
+  readonly surface: SurfaceScene;
 
   private active: SceneSlot;
   private state: AppState = "launch";
@@ -295,5 +297,20 @@ export class SceneManager {
   pickPlanet(id: string): void {
     this.selectedPlanet = getPlanet(id);
     this.setState("flight");
+  }
+
+  /** Snapshot used by the on-screen debug HUD. */
+  getDebugState(): {
+    state: AppState;
+    active: SceneSlot;
+    selectedPlanet: Planet | null;
+    surface: ReturnType<SurfaceScene["getDebugSnapshot"]>;
+  } {
+    return {
+      state: this.state,
+      active: this.active,
+      selectedPlanet: this.selectedPlanet,
+      surface: this.surface.getDebugSnapshot(),
+    };
   }
 }

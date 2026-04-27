@@ -1139,3 +1139,84 @@
     transform: translateY(0);
   }
 }
+
+/* ---------- Debug HUD ---------- */
+
+#debug-hud {
+  position: fixed;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  width: min(540px, calc(100vw - 24px));
+  background: rgba(8, 12, 18, 0.86);
+  color: #d6f6ff;
+  border: 1px solid rgba(0, 243, 255, 0.35);
+  border-radius: 6px;
+  font-family: ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  pointer-events: auto;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(6px);
+}
+
+#debug-hud[data-visible="false"] {
+  display: none;
+}
+
+#debug-hud header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(0, 243, 255, 0.18);
+  background: rgba(0, 243, 255, 0.06);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+#debug-hud header strong {
+  color: #00f3ff;
+  font-weight: 600;
+}
+
+#debug-hud header #debug-hud-build {
+  color: rgba(214, 246, 255, 0.55);
+  text-transform: uppercase;
+}
+
+#debug-hud pre {
+  margin: 0;
+  padding: 8px 10px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 60vh;
+  overflow: auto;
+}
+
+#debug-hud footer {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-top: 1px solid rgba(0, 243, 255, 0.18);
+  background: rgba(0, 0, 0, 0.25);
+}
+
+#debug-hud footer button {
+  flex: 1;
+  font: inherit;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: rgba(0, 243, 255, 0.08);
+  border: 1px solid rgba(0, 243, 255, 0.32);
+  color: #d6f6ff;
+  padding: 4px 6px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+#debug-hud footer button:hover {
+  background: rgba(0, 243, 255, 0.18);
+}
