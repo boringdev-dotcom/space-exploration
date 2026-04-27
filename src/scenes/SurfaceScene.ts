@@ -58,9 +58,13 @@ export class SurfaceScene implements SceneSlot {
   private readonly normalFov = 75;
   private readonly sprintFov = 82;
 
-  // Marble's viewer drops the camera right at the scan origin. Keep eye
-  // height at 0 so we don't lift off above the captured ground plane.
-  private readonly eyeHeight = 0;
+  // Marble's viewer initialises the camera at the scan origin (0, 0, 0)
+  // looking at (0, 0, -10), then — once the splat has finished loading —
+  // animates it up to (0, 1, 0) looking at (0, 1, -10). That 1-unit lift
+  // is what makes the framing look like "you're standing on the surface"
+  // instead of "your eye is buried in the ground". We mirror that final
+  // pose exactly so the spawn matches marble.worldlabs.ai byte-for-byte.
+  private readonly eyeHeight = 1;
 
   // Reusable scratch vectors so we don't allocate per-frame.
   private readonly _camDir = new THREE.Vector3();
@@ -72,10 +76,10 @@ export class SurfaceScene implements SceneSlot {
     this.canvas = canvas;
 
     // Match Marble's official world viewer (marble.worldlabs.ai): a 75° FOV
-    // camera at the splat's scan origin (0, 0, 0) looking down -Z toward an
-    // orbit target at (0, 0, -10). Marble's near/far defaults work out to
-    // roughly the same as Spark's reference viewer (0.01 near, 1000 far),
-    // so we keep those.
+    // camera at (0, eyeHeight, 0) looking down -Z toward an orbit target at
+    // (0, eyeHeight, -10). Marble's near/far defaults work out to roughly
+    // the same as Spark's reference viewer (0.01 near, 1000 far), so we
+    // keep those.
     this.camera = new THREE.PerspectiveCamera(
       this.normalFov,
       window.innerWidth / window.innerHeight,
@@ -277,12 +281,12 @@ export class SurfaceScene implements SceneSlot {
   }
 
   private resetCameraPose(_planet: Planet): void {
-    // Marble's official viewer (marble.worldlabs.ai) drops the camera at the
-    // scan origin and points it straight down -Z toward an orbit target at
-    // (0, 0, -10). After our OpenCV→OpenGL flip on the splat (quaternion
-    // 1, 0, 0, 0 — a 180° rotation around X), this is exactly the direction
-    // the Marble preview faces. Reproducing it byte-for-byte gives us the
-    // same hero framing the user saw when generating the world.
+    // Marble's official viewer (marble.worldlabs.ai) settles the camera at
+    // (0, 1, 0) looking at (0, 1, -10) once the splat has loaded. After our
+    // OpenCV→OpenGL flip on the splat (quaternion 1, 0, 0, 0 — a 180°
+    // rotation around X), this is exactly the framing the Marble preview
+    // shows. Reproducing it byte-for-byte gives us the same hero view the
+    // user saw when they generated the world.
     this.camera.position.set(0, this.eyeHeight, 0);
     this.camera.quaternion.identity();
     this.camera.lookAt(0, this.eyeHeight, -10);
