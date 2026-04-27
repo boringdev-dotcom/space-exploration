@@ -10,10 +10,9 @@ import type { SceneManager } from "../scenes/SceneManager";
  * scene manager + surface splat: active scene, splat status/URL/progress,
  * splat geometry stats (bounding box, splat count), camera pose/FOV, etc.
  *
- * Toggle with the `~` (backtick) key or the `?debug=1` URL flag. Visible by
- * default in dev; gated behind the URL flag in production so we can ask the
- * user to share it from a deployed build without it cluttering their normal
- * sessions.
+ * Toggle with the `~` (backtick) key or the `?debug=1` URL flag. Hidden by
+ * default so dev builds match the normal cockpit composition unless explicitly
+ * debugging.
  */
 
 interface DebugHudArgs {
@@ -22,9 +21,8 @@ interface DebugHudArgs {
 
 export function mountDebugHud({ manager }: DebugHudArgs): () => void {
   const params = new URLSearchParams(window.location.search);
-  const isDev = Boolean(import.meta.env?.DEV);
   const forceOn = params.has("debug") || params.has("d");
-  const startVisible = isDev || forceOn;
+  const startVisible = forceOn;
 
   const root = document.createElement("div");
   root.id = "debug-hud";
