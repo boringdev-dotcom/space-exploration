@@ -4,6 +4,7 @@ import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
 
 import type { SceneSlot } from "./Scene";
 import type { Planet } from "../data/planets";
+import type { SurfaceDebugSnapshot } from "../hud/debugHud";
 
 export type SurfaceStatus =
   | "idle"
@@ -28,6 +29,8 @@ export class SurfaceScene implements SceneSlot {
   private splat: SplatMesh | null = null;
   private _status: SurfaceStatus = "idle";
   private _progress = 0;
+  private _splatUrl: string | null = null;
+  private _lastError: string | null = null;
   private lockListeners: LockListener[] = [];
 
   private moveForward = false;
@@ -123,6 +126,8 @@ export class SurfaceScene implements SceneSlot {
   async loadPlanet(planet: Planet): Promise<void> {
     this._status = "loading";
     this._progress = 0;
+    this._splatUrl = planet.splatUrl;
+    this._lastError = null;
 
     if (this.splat) {
       this.scene.remove(this.splat);
@@ -176,6 +181,7 @@ export class SurfaceScene implements SceneSlot {
     } catch (err) {
       console.error("[SurfaceScene] failed to load splat", err);
       this._status = "error";
+      this._lastError = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     }
   }
 
@@ -261,6 +267,45 @@ export class SurfaceScene implements SceneSlot {
   }
   get progress(): number {
     return this._progress;
+  }
+  get isLocked(): boolean {
+    return this.controls.isLocked;
+  }
+
+  /** Snapshot used by the on-screen debug HUD. */
+  getDebugSnapshot(): SurfaceDebugSnapshot {
+    let bbox: THREE.Box3 | null = null;
+    let splatCount: number | null = null;
+    if (this.splat) {
+      try {
+        const b = this.splat.getBoundingBox?.(true);
+        if (b && Number.isFinite(b.min.x) && !b.isEmpty()) bbox = b;
+      } catch {
+        bbox = null;
+      }
+      const splatAny = this.splat as unknown as {
+        numSplats?: number;
+        splats?: { numSplats?: number; lodSplats?: { numSplats?: number } };
+      };
+      splatCount =
+        splatAny.numSplats ??
+        splatAny.splats?.lodSplats?.numSplats ??
+        splatAny.splats?.numSplats ??
+        null;
+    }
+    return {
+      status: this._status,
+      progress: this._progress,
+      isLocked: this.controls.isLocked,
+      splatUrl: this._splatUrl,
+      splatCount,
+      splatPosition: this.splat ? this.splat.position.clone() : null,
+      splatQuaternion: this.splat ? this.splat.quaternion.clone() : null,
+      splatScale: this.splat ? this.splat.scale.clone() : null,
+      bbox,
+      lastError: this._lastError,
+      splat: this.splat,
+    };
   }
 
   /* Pointer lock plumbing for the HUD */

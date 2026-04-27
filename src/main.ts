@@ -1,4 +1,5 @@
 import { SceneManager } from "./scenes/SceneManager";
+import { mountDebugHud } from "./hud/debugHud";
 import { unlockAudio } from "./util/audio";
 
 function bootstrap(): void {
@@ -24,6 +25,7 @@ function bootstrap(): void {
   }, 600);
 
   const manager = new SceneManager(canvas);
+  mountDebugHud({ manager });
 
   // Unlock audio on first user interaction (browsers block autoplay).
   const unlock = (): void => {
