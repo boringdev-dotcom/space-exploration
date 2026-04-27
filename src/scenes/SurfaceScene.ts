@@ -52,9 +52,11 @@ export class SurfaceScene implements SceneSlot {
   private readonly horizontalVelocity = new THREE.Vector3();
   private verticalVelocity = 0;
 
-  // Sprint FOV ramp.
-  private readonly normalFov = 70;
-  private readonly sprintFov = 78;
+  // Sprint FOV ramp. The base 75° matches Marble's official world viewer so
+  // perspective and framing line up with the marble.worldlabs.ai preview the
+  // user saw when they generated the world.
+  private readonly normalFov = 75;
+  private readonly sprintFov = 82;
 
   // Marble's viewer drops the camera right at the scan origin. Keep eye
   // height at 0 so we don't lift off above the captured ground plane.
@@ -69,10 +71,11 @@ export class SurfaceScene implements SceneSlot {
     this.spark = spark;
     this.canvas = canvas;
 
-    // Match Spark's reference viewer (examples/viewer/index.html): a single
-    // FOV-75 camera with a tight 0.01 near plane so we don't clip our nose.
-    // Marble splats fit comfortably inside ~50–100 units, so 1000 far is
-    // plenty without burning depth precision.
+    // Match Marble's official world viewer (marble.worldlabs.ai): a 75° FOV
+    // camera at the splat's scan origin (0, 0, 0) looking down -Z toward an
+    // orbit target at (0, 0, -10). Marble's near/far defaults work out to
+    // roughly the same as Spark's reference viewer (0.01 near, 1000 far),
+    // so we keep those.
     this.camera = new THREE.PerspectiveCamera(
       this.normalFov,
       window.innerWidth / window.innerHeight,
@@ -158,7 +161,11 @@ export class SurfaceScene implements SceneSlot {
         splat.numSplats,
       );
 
-      this.aimCameraAtSplat(splat);
+      // Marble's viewer never reorients the camera based on splat geometry —
+      // it simply spawns at the scan origin looking down -Z. We mirror that
+      // behaviour exactly (see resetCameraPose); calling lookAt against a
+      // bbox centroid here was what produced the off-axis "weird" pose vs.
+      // the marble.worldlabs.ai preview.
 
       this._progress = 1;
       this._status = "ready";
@@ -269,100 +276,16 @@ export class SurfaceScene implements SceneSlot {
     this.lockListeners.forEach((cb) => cb(locked));
   }
 
-  /**
-   * Aim the camera at the densest part of the splat.
-   *
-   * Marble exports SPZ files where the scan viewpoint is at the splat's local
-   * `(0, 0, 0)`, but the captured geometry is heavily biased toward whichever
-   * direction the original camera was pointing. Three.js's default camera
-   * orientation looks down `-Z`, which (after our OpenCV→OpenGL flip) only
-   * happens to coincide with the captured side of the world for some scans
-   * — for Europa it points away from the world, leaving ~half the screen
-   * black.
-   *
-   * We use the bounding-box centre of the splat centres as a robust proxy
-   * for "the direction with the most stuff", and orient the camera toward
-   * that direction so the user spawns looking *into* the world the same way
-   * Marble's viewer does by default.
-   *
-   * Important: `SplatMesh.getBoundingBox()` reports coordinates in the
-   * splat's *local* space (it iterates raw centres without applying
-   * transforms). Our canonical "right-side-up" rotation (quaternion
-   * `(1, 0, 0, 0)`, a 180° flip around X) negates Y and Z, so we rotate the
-   * local centre into world space before pointing the camera at it.
-   */
-  private aimCameraAtSplat(splat: SplatMesh): void {
-    let bbox: THREE.Box3 | null = null;
-    try {
-      bbox = splat.getBoundingBox(true);
-    } catch (err) {
-      console.warn("[SurfaceScene] splat bbox unavailable, keeping default look", err);
-      return;
-    }
-
-    if (
-      !bbox ||
-      !Number.isFinite(bbox.min.x) ||
-      !Number.isFinite(bbox.max.x)
-    ) {
-      console.warn("[SurfaceScene] splat bbox is empty/infinite, keeping default look");
-      return;
-    }
-
-    const localCenter = bbox.getCenter(new THREE.Vector3());
-    const localSize = bbox.getSize(new THREE.Vector3());
-
-    // Convert the local centre into world space using only the splat's
-    // rotation (position is 0, scale is 1).
-    const worldCenter = localCenter
-      .clone()
-      .applyQuaternion(splat.quaternion)
-      .add(splat.position);
-
-    // Don't pitch the horizon: keep the camera level with the captured
-    // ground plane and look horizontally toward the bulk of the geometry.
-    // Without this, scans with a low scan origin (Y < 0 in world) would tilt
-    // the user's head sharply down and they'd just see splats stacked above.
-    const aimTarget = worldCenter.clone();
-    aimTarget.y = this.camera.position.y;
-
-    // If the bulk of the world happens to sit on top of the camera (e.g.
-    // some weird vertical scan), aimTarget == camera.position and lookAt
-    // would produce NaNs. Fall back to a default forward in that case.
-    const horizDist = Math.hypot(
-      aimTarget.x - this.camera.position.x,
-      aimTarget.z - this.camera.position.z,
-    );
-    if (horizDist < 1e-3) {
-      aimTarget.set(
-        this.camera.position.x,
-        this.camera.position.y,
-        this.camera.position.z - 1,
-      );
-    }
-
-    this.camera.quaternion.identity();
-    this.camera.lookAt(aimTarget);
-
-    console.log(
-      "[SurfaceScene] aimed camera — local bbox center:",
-      localCenter.toArray().map((v) => v.toFixed(2)),
-      "size:",
-      localSize.toArray().map((v) => v.toFixed(2)),
-      "→ look target (world):",
-      aimTarget.toArray().map((v) => v.toFixed(2)),
-    );
-  }
-
-  private resetCameraPose(planet: Planet): void {
-    // Drop the camera onto the scan origin and orient it down -Z. After the
-    // splat's OpenCV→OpenGL flip (quaternion 1,0,0,0) this is the direction
-    // Marble's viewer faces when the world first opens. A planet can override
-    // this with `surfaceLookAt` if its scene has a more cinematic hero view.
-    const [lookX, lookY, lookZ] = planet.surfaceLookAt ?? [0, 0, -1];
+  private resetCameraPose(_planet: Planet): void {
+    // Marble's official viewer (marble.worldlabs.ai) drops the camera at the
+    // scan origin and points it straight down -Z toward an orbit target at
+    // (0, 0, -10). After our OpenCV→OpenGL flip on the splat (quaternion
+    // 1, 0, 0, 0 — a 180° rotation around X), this is exactly the direction
+    // the Marble preview faces. Reproducing it byte-for-byte gives us the
+    // same hero framing the user saw when generating the world.
     this.camera.position.set(0, this.eyeHeight, 0);
     this.camera.quaternion.identity();
-    this.camera.lookAt(lookX, lookY, lookZ);
+    this.camera.lookAt(0, this.eyeHeight, -10);
   }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {

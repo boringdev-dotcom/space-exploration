@@ -34,8 +34,6 @@ export interface Planet {
   splatUrl: string;
   /** Optional browser-served GLB shown in cinematic scenes. */
   modelUrl?: string;
-  /** Optional initial surface look target in camera-local world coordinates. */
-  surfaceLookAt?: [number, number, number];
   /** colours for the destination orb + flight skybox accent. */
   theme: PlanetTheme;
 }
@@ -55,7 +53,6 @@ export const PLANETS: Planet[] = [
       "Photorealistic surface of the Moon, gray regolith craters and rolling lunar plains, Earth visible in a pitch-black starry sky, harsh sunlight casting long shadows, NASA Apollo aesthetic, ground-level perspective, no humans, no rovers.",
     splatUrl: "https://cdn.marble.worldlabs.ai/87f86884-8f9f-4136-94af-e2c95c88a25d/511a5e3a-6c26-4370-a92b-3d9f3cda8498_ceramic.spz",
     modelUrl: "/models/moon/moon.glb",
-    surfaceLookAt: [-0.45, -0.25, -1],
     theme: {
       light: "#f1f1f0",
       mid: "#9a9a9a",
