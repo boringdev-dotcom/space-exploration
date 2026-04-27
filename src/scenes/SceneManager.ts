@@ -304,12 +304,14 @@ export class SceneManager {
     state: AppState;
     active: SceneSlot;
     selectedPlanet: Planet | null;
+    flight: ReturnType<FlightScene["getDestinationDebugSnapshot"]>;
     surface: ReturnType<SurfaceScene["getDebugSnapshot"]>;
   } {
     return {
       state: this.state,
       active: this.active,
       selectedPlanet: this.selectedPlanet,
+      flight: this.flight.getDestinationDebugSnapshot(),
       surface: this.surface.getDebugSnapshot(),
     };
   }

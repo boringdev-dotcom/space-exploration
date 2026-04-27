@@ -20,8 +20,9 @@ export async function loadNormalizedGltfModel(
   const maxDim = Math.max(size.x, size.y, size.z);
 
   if (Number.isFinite(maxDim) && maxDim > 0) {
-    gltf.scene.position.sub(center);
-    gltf.scene.scale.setScalar(targetDiameter / maxDim);
+    const scale = targetDiameter / maxDim;
+    gltf.scene.scale.setScalar(scale);
+    gltf.scene.position.copy(center).multiplyScalar(-scale);
   }
 
   gltf.scene.traverse((obj) => {

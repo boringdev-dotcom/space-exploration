@@ -22,6 +22,7 @@ interface DebugHudArgs {
 export function mountDebugHud({ manager }: DebugHudArgs): () => void {
   const params = new URLSearchParams(window.location.search);
   const forceOn = params.has("debug") || params.has("d");
+  const alignOn = params.has("align") || params.has("alignment");
   const startVisible = forceOn;
 
   const root = document.createElement("div");
@@ -39,6 +40,7 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
     </footer>
   `;
   document.body.appendChild(root);
+  const alignment = alignOn ? createAlignmentOverlay() : null;
 
   const body = root.querySelector<HTMLPreElement>("#debug-hud-body")!;
   const copyBtn = root.querySelector<HTMLButtonElement>("#debug-hud-copy")!;
@@ -54,11 +56,15 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
 
   const tick = (): void => {
     raf = requestAnimationFrame(tick);
+    if (alignment) {
+      updateAlignmentOverlay(alignment, manager);
+    }
     if (root.dataset.visible !== "true") return;
 
     const lines: string[] = [];
 
     const { active, state, surface } = manager.getDebugState();
+    const flight = manager.flight.getDestinationDebugSnapshot();
     lines.push(`state:        ${state}`);
     lines.push(
       `activeScene:  ${active === manager.surface ? "surface" : active === manager.flight ? "flight" : "launch"}`,
@@ -76,6 +82,23 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
       `camera.fov:   ${fmt(cam.fov, 2)}  near ${cam.near}  far ${cam.far}`,
     );
     lines.push(`canvas:       ${window.innerWidth}×${window.innerHeight}  dpr ${window.devicePixelRatio}`);
+
+    if (active === manager.flight) {
+      const projected = flight.screen;
+      lines.push("");
+      lines.push("--- alignment ---");
+      lines.push(`viewport:     ${fmt(window.innerWidth / 2, 1)}, ${fmt(window.innerHeight / 2, 1)}`);
+      lines.push(`reticle:      ${fmtRectCenter("#screen-flight .reticle")}`);
+      lines.push(`target:       ${projected ? `${fmt(projected.x, 1)}, ${fmt(projected.y, 1)}` : "—"}`);
+      lines.push(
+        `targetDelta:  ${projected ? `${fmt(projected.x - window.innerWidth / 2, 1)}, ${fmt(projected.y - window.innerHeight / 2, 1)}` : "—"}`,
+      );
+      lines.push(`targetWorld:  ${fmtV(flight.position, 2)}`);
+      if (flight.boundsCenter) {
+        lines.push(`modelCenter:  ${fmtV(flight.boundsCenter, 2)}`);
+        lines.push(`modelScreen:  ${flight.boundsScreen ? `${fmt(flight.boundsScreen.x, 1)}, ${fmt(flight.boundsScreen.y, 1)}` : "—"}`);
+      }
+    }
 
     if (active === manager.surface) {
       lines.push("");
@@ -138,8 +161,56 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
   return () => {
     cancelAnimationFrame(raf);
     window.removeEventListener("keydown", onKey);
+    alignment?.remove();
     root.remove();
   };
+}
+
+function fmtRectCenter(selector: string): string {
+  const el = document.querySelector<HTMLElement>(selector);
+  if (!el) return "—";
+  const r = el.getBoundingClientRect();
+  return `${(r.left + r.width / 2).toFixed(1)}, ${(r.top + r.height / 2).toFixed(1)}`;
+}
+
+function createAlignmentOverlay(): HTMLElement {
+  const overlay = document.createElement("div");
+  overlay.id = "alignment-debug";
+  overlay.innerHTML = `
+    <div class="alignment-debug__line alignment-debug__line--x"></div>
+    <div class="alignment-debug__line alignment-debug__line--y"></div>
+    <div class="alignment-debug__marker alignment-debug__marker--viewport">VIEW</div>
+    <div class="alignment-debug__marker alignment-debug__marker--target">3D</div>
+    <div class="alignment-debug__marker alignment-debug__marker--reticle">HUD</div>
+  `;
+  document.body.appendChild(overlay);
+  return overlay;
+}
+
+function updateAlignmentOverlay(overlay: HTMLElement, manager: SceneManager): void {
+  const { active } = manager.getDebugState();
+  overlay.dataset.visible = String(active === manager.flight);
+  if (active !== manager.flight) return;
+
+  const viewport = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+  const flight = manager.flight.getDestinationDebugSnapshot();
+  const target = flight.boundsScreen ?? flight.screen ?? viewport;
+  const reticleEl = document.querySelector<HTMLElement>("#screen-flight .reticle");
+  const reticleRect = reticleEl?.getBoundingClientRect();
+  const reticle = reticleRect
+    ? { x: reticleRect.left + reticleRect.width / 2, y: reticleRect.top + reticleRect.height / 2 }
+    : viewport;
+
+  setMarker(overlay, "viewport", viewport);
+  setMarker(overlay, "target", target);
+  setMarker(overlay, "reticle", reticle);
+}
+
+function setMarker(overlay: HTMLElement, name: string, point: { x: number; y: number }): void {
+  const marker = overlay.querySelector<HTMLElement>(`.alignment-debug__marker--${name}`);
+  if (!marker) return;
+  marker.style.left = `${point.x}px`;
+  marker.style.top = `${point.y}px`;
 }
 
 /**

@@ -151,10 +151,10 @@ export class FlightScene implements SceneSlot {
     const t = this.progress;
     const ease = easeInOutCubic(t);
 
-    // Slide the planet from far -> near
+    // Slide the planet from far -> near while keeping it on the reticle axis.
     const startZ = -1500;
     const endZ = -180;
-    this.placeDestination(0, -10 + 8 * ease, startZ + (endZ - startZ) * ease);
+    this.placeDestination(0, 0, startZ + (endZ - startZ) * ease);
     this.planet.rotation.y += delta * 0.06;
     if (this.planetModel) {
       this.planetModel.rotation.y += delta * 0.06;
@@ -244,6 +244,26 @@ export class FlightScene implements SceneSlot {
     return ((this.travelTimeSec * 12) % 360);
   }
 
+  getDestinationDebugSnapshot(): {
+    position: THREE.Vector3;
+    screen: THREE.Vector2;
+    boundsCenter: THREE.Vector3 | null;
+    boundsScreen: THREE.Vector2 | null;
+  } {
+    const target = this.planetModel ?? this.planet;
+    const position = target.position.clone();
+    const screen = projectToViewport(position, this.camera);
+    const bounds = new THREE.Box3().setFromObject(target);
+    const boundsCenter = bounds.isEmpty() ? null : bounds.getCenter(new THREE.Vector3());
+
+    return {
+      position,
+      screen,
+      boundsCenter,
+      boundsScreen: boundsCenter ? projectToViewport(boundsCenter, this.camera) : null,
+    };
+  }
+
   private async loadPlanetModel(url: string, loadId: number): Promise<void> {
     try {
       const model = await loadNormalizedGltfModel(url, 160);
@@ -286,4 +306,12 @@ export class FlightScene implements SceneSlot {
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+function projectToViewport(position: THREE.Vector3, camera: THREE.Camera): THREE.Vector2 {
+  const projected = position.clone().project(camera);
+  return new THREE.Vector2(
+    (projected.x * 0.5 + 0.5) * window.innerWidth,
+    (-projected.y * 0.5 + 0.5) * window.innerHeight,
+  );
 }
