@@ -974,9 +974,12 @@
 .hud-screen.is-active .countdown-meta,
 .hud-screen.is-active .compass,
 .hud-screen.is-active .travel-progress,
-.hud-screen.is-active .reticle,
 .hud-screen.is-active .select-header {
   animation: hudIn 520ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
+}
+
+.hud-screen.is-active .reticle {
+  animation: reticleHudIn 520ms cubic-bezier(0.2, 0.7, 0.1, 1) both;
 }
 
 .hud-screen.is-active .panel-top-right > *,
@@ -1002,6 +1005,19 @@
   100% {
     opacity: 1;
     transform: translateY(0) scale(1);
+    filter: blur(0);
+  }
+}
+
+@keyframes reticleHudIn {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px)) scale(0.985);
+    filter: blur(6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
     filter: blur(0);
   }
 }
