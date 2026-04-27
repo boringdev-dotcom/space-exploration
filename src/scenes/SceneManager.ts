@@ -182,6 +182,7 @@ export class SceneManager {
 
     this.hudCleanups.push(
       mountSelectHud({
+        onPreview: () => {},
         onSelect: (planet) => {
           this.selectedPlanet = planet;
           playCue("click");
@@ -256,6 +257,11 @@ export class SceneManager {
     }
 
     if (this.post.bypass) {
+      // Make sure we draw to the canvas, not whatever offscreen target the
+      // EffectComposer last bound. Without this, the very first frame after
+      // the post-fx pipeline disengages can render into a stale ping-pong
+      // buffer and the viewer flashes black.
+      this.renderer.setRenderTarget(null);
       this.renderer.render(this.active.scene, this.active.camera);
     } else {
       this.post.setScene(this.active.scene, this.active.camera);

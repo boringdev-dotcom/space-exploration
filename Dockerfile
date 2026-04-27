@@ -17,6 +17,12 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    location = /favicon.ico {
+        access_log off;
+        log_not_found off;
+        return 204;
+    }
+
     location / {
         try_files $uri $uri/ /index.html;
     }

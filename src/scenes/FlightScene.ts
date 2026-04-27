@@ -3,6 +3,7 @@ import * as THREE from "three";
 import type { SceneSlot } from "./Scene";
 import { createStarfield, createWarpStreaks } from "../util/starfield";
 import type { Planet } from "../data/planets";
+import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 
 /**
  * In-flight + arrival scene. Drives a 25s warp animation toward a planet sphere
@@ -19,6 +20,8 @@ export class FlightScene implements SceneSlot {
   private planetMat: THREE.MeshStandardMaterial;
   private halo: THREE.Mesh;
   private haloMat: THREE.ShaderMaterial;
+  private planetModel: THREE.Group | null = null;
+  private planetModelLoadId = 0;
   private sun: THREE.DirectionalLight;
 
   private travelDurationSec = 25;
@@ -104,6 +107,8 @@ export class FlightScene implements SceneSlot {
     this.travelTimeSec = 0;
     this.active = true;
     this.arrivalMode = false;
+    this.planetModelLoadId += 1;
+    this.clearPlanetModel();
 
     // Color = mid (true planet hue), emissive a darker shade boosted just enough
     // to read through bloom without blowing out highlights.
@@ -115,8 +120,14 @@ export class FlightScene implements SceneSlot {
 
     this.planet.position.set(0, -10, -1500);
     this.halo.position.copy(this.planet.position);
+    this.planet.visible = true;
+    this.halo.visible = true;
     this.camera.position.set(0, 0, 0);
     this.camera.rotation.set(0, 0, 0);
+
+    if (planet.modelUrl) {
+      void this.loadPlanetModel(planet.modelUrl, this.planetModelLoadId);
+    }
   }
 
   beginArrival(): void {
@@ -143,10 +154,11 @@ export class FlightScene implements SceneSlot {
     // Slide the planet from far -> near
     const startZ = -1500;
     const endZ = -180;
-    this.planet.position.z = startZ + (endZ - startZ) * ease;
-    this.planet.position.y = -10 + 8 * ease;
-    this.halo.position.copy(this.planet.position);
+    this.placeDestination(0, -10 + 8 * ease, startZ + (endZ - startZ) * ease);
     this.planet.rotation.y += delta * 0.06;
+    if (this.planetModel) {
+      this.planetModel.rotation.y += delta * 0.06;
+    }
 
     // Camera shake intensity ramps with speed, peaks mid-flight.
     const shakeAmp = Math.sin(t * Math.PI) * 0.022;
@@ -179,9 +191,8 @@ export class FlightScene implements SceneSlot {
       this.camera.position.y = 6 + Math.sin(elapsed * 0.4) * 0.2;
       this.camera.position.z = Math.cos(a) * 32;
       this.camera.rotation.set(0, 0, 0);
-      this.planet.position.set(0, 0, -r);
-      this.halo.position.copy(this.planet.position);
-      this.camera.lookAt(this.planet.position);
+      this.placeDestination(0, 0, -r);
+      this.camera.lookAt(this.planetModel?.position ?? this.planet.position);
     }
   }
 
@@ -191,6 +202,7 @@ export class FlightScene implements SceneSlot {
   }
 
   dispose(): void {
+    this.clearPlanetModel();
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       mesh.geometry?.dispose?.();
@@ -230,6 +242,45 @@ export class FlightScene implements SceneSlot {
 
   get headingDeg(): number {
     return ((this.travelTimeSec * 12) % 360);
+  }
+
+  private async loadPlanetModel(url: string, loadId: number): Promise<void> {
+    try {
+      const model = await loadNormalizedGltfModel(url, 160);
+      if (loadId !== this.planetModelLoadId || this.currentPlanet?.modelUrl !== url) {
+        disposeObjectTree(model);
+        return;
+      }
+
+      this.clearPlanetModel();
+      this.planetModel = model;
+      this.planetModel.position.copy(this.planet.position);
+      this.planetModel.rotation.y = this.planet.rotation.y;
+      this.scene.add(this.planetModel);
+      this.planet.visible = false;
+      this.halo.visible = false;
+    } catch (err) {
+      console.warn("[FlightScene] failed to load planet GLB", err);
+      if (loadId === this.planetModelLoadId) {
+        this.planet.visible = true;
+        this.halo.visible = true;
+      }
+    }
+  }
+
+  private placeDestination(x: number, y: number, z: number): void {
+    this.planet.position.set(x, y, z);
+    this.halo.position.copy(this.planet.position);
+    if (this.planetModel) {
+      this.planetModel.position.copy(this.planet.position);
+    }
+  }
+
+  private clearPlanetModel(): void {
+    if (!this.planetModel) return;
+    this.scene.remove(this.planetModel);
+    disposeObjectTree(this.planetModel);
+    this.planetModel = null;
   }
 }
 

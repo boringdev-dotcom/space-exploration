@@ -32,6 +32,10 @@ export interface Planet {
   prompt: string;
   /** SPZ URL for the surface splat. */
   splatUrl: string;
+  /** Optional browser-served GLB shown in cinematic scenes. */
+  modelUrl?: string;
+  /** Optional initial surface look target in camera-local world coordinates. */
+  surfaceLookAt?: [number, number, number];
   /** colours for the destination orb + flight skybox accent. */
   theme: PlanetTheme;
 }
@@ -50,6 +54,8 @@ export const PLANETS: Planet[] = [
     prompt:
       "Photorealistic surface of the Moon, gray regolith craters and rolling lunar plains, Earth visible in a pitch-black starry sky, harsh sunlight casting long shadows, NASA Apollo aesthetic, ground-level perspective, no humans, no rovers.",
     splatUrl: "https://cdn.marble.worldlabs.ai/87f86884-8f9f-4136-94af-e2c95c88a25d/511a5e3a-6c26-4370-a92b-3d9f3cda8498_ceramic.spz",
+    modelUrl: "/models/moon/moon.glb",
+    surfaceLookAt: [-0.45, -0.25, -1],
     theme: {
       light: "#f1f1f0",
       mid: "#9a9a9a",
@@ -70,6 +76,7 @@ export const PLANETS: Planet[] = [
     prompt:
       "Photorealistic surface of Mars, red ochre dust plains with scattered basalt boulders, distant volcano silhouette, dusty pink-orange sky, low afternoon sun, ground-level perspective, no humans, no rovers, no signage.",
     splatUrl: "https://cdn.marble.worldlabs.ai/1fee1320-b9ea-465f-86b0-9a6ab78f2273/7e4e27d4-5b37-4d5a-a76c-7e07f7bfae40_ceramic.spz",
+    modelUrl: "/models/mars/mars_the_red_planet_free.glb",
     theme: {
       light: "#ffb287",
       mid: "#c8552d",
@@ -90,6 +97,7 @@ export const PLANETS: Planet[] = [
     prompt:
       "Photorealistic surface of Europa, fractured pale-blue ice sheets with reddish hydrate veins, smooth icy plains, Jupiter looming massive in a dark starry sky, soft cold sunlight, ground-level perspective, no humans.",
     splatUrl: "https://cdn.marble.worldlabs.ai/21fcffa3-411e-4f0f-8a2a-abe9533326ed/4f161ce6-3f2a-43c0-b033-92ce61508fd3_ceramic.spz",
+    modelUrl: "/models/europa/europa.glb",
     theme: {
       light: "#dff5ff",
       mid: "#7aa6c2",
@@ -110,6 +118,7 @@ export const PLANETS: Planet[] = [
     prompt:
       "Photorealistic surface of Titan, dunes of dark hydrocarbon sand, methane mist near the horizon, thick orange-amber sky, distant ringed Saturn faintly visible through haze, dim diffuse sunlight, ground-level perspective, no humans.",
     splatUrl: "https://cdn.marble.worldlabs.ai/0c3cb742-6d14-4ddd-9ef2-7e07117f48b0/57584c9b-8723-48bc-a5b3-d1f242f9eb0a_ceramic.spz",
+    modelUrl: "/models/titan/titan.glb",
     theme: {
       light: "#ffe2a8",
       mid: "#c79248",

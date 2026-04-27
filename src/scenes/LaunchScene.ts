@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 import type { SceneSlot } from "./Scene";
+import type { Planet } from "../data/planets";
+import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 import { createStarfield } from "../util/starfield";
 
 /**
@@ -26,6 +28,10 @@ export class LaunchScene implements SceneSlot {
   private starfield: THREE.Points;
   private sun: THREE.DirectionalLight;
   private controls: OrbitControls;
+  private previewModel: THREE.Group | null = null;
+  private previewPlanetId: string | null = null;
+  private previewLoadId = 0;
+  private selectPreviewMode = false;
 
   private exhaust: THREE.Points;
   private exhaustVel: Float32Array;
@@ -276,6 +282,7 @@ export class LaunchScene implements SceneSlot {
   }
   exit(): void {
     this.controls.enabled = false;
+    this.setSelectPreviewMode(false);
   }
 
   update(delta: number, elapsed: number): void {
@@ -294,6 +301,10 @@ export class LaunchScene implements SceneSlot {
     }
 
     this.controls.update();
+
+    if (this.previewModel) {
+      this.previewModel.rotation.y += delta * 0.035;
+    }
 
     // Rocket bob and exhaust emission
     const bob = Math.sin(elapsed * 1.6) * 0.05;
@@ -316,6 +327,7 @@ export class LaunchScene implements SceneSlot {
   }
 
   dispose(): void {
+    this.clearPreviewModel();
     this.controls.dispose();
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
@@ -329,13 +341,42 @@ export class LaunchScene implements SceneSlot {
   /* Camera presets */
 
   frameEarth(): void {
+    this.setSelectPreviewMode(false);
     this.tweenTarget(this.camera.position, new THREE.Vector3(0, 1.6, 9.5), 0.1);
+    this.controls.target.set(0, 0, 0);
     this.controls.minDistance = 5.5;
     this.controls.maxDistance = 18;
   }
 
   frameOrbit(): void {
+    this.setSelectPreviewMode(false);
     this.tweenTarget(this.camera.position, new THREE.Vector3(0, 2.4, 13), 0.08);
+  }
+
+  enterSelectPreview(defaultPlanet: Planet | null): void {
+    this.setSelectPreviewMode(true);
+    this.camera.position.set(0, 1.2, 7.2);
+    this.controls.target.set(0, 0, 0);
+    this.controls.minDistance = 3.8;
+    this.controls.maxDistance = 11;
+    this.controls.autoRotate = true;
+    this.controls.update();
+    this.previewPlanet(defaultPlanet);
+  }
+
+  previewPlanet(planet: Planet | null): void {
+    if (!this.selectPreviewMode) return;
+    if (planet?.id === this.previewPlanetId) return;
+
+    this.previewLoadId += 1;
+    this.previewPlanetId = planet?.id ?? null;
+    this.clearPreviewModel();
+
+    if (!planet?.modelUrl) {
+      return;
+    }
+
+    void this.loadPreviewModel(planet.modelUrl, this.previewLoadId);
   }
 
   /* Helpers */
@@ -343,6 +384,51 @@ export class LaunchScene implements SceneSlot {
   private tweenTarget(_pos: THREE.Vector3, target: THREE.Vector3, speed: number): void {
     // Lerp on next frames inside update; cheap implementation: nudge toward target.
     this.camera.position.lerp(target, Math.min(1, speed));
+  }
+
+  private setSelectPreviewMode(enabled: boolean): void {
+    this.selectPreviewMode = enabled;
+    this.earth.visible = !enabled;
+    this.clouds.visible = !enabled;
+    this.atmosphere.visible = !enabled;
+    this.rocket.visible = !enabled;
+    this.exhaust.visible = !enabled;
+
+    if (!enabled) {
+      this.previewLoadId += 1;
+      this.previewPlanetId = null;
+      this.clearPreviewModel();
+      this.controls.minDistance = 5.5;
+      this.controls.maxDistance = 18;
+      this.controls.autoRotate = true;
+      this.controls.target.set(0, 0, 0);
+      this.controls.update();
+    }
+  }
+
+  private async loadPreviewModel(url: string, loadId: number): Promise<void> {
+    try {
+      const model = await loadNormalizedGltfModel(url, 3.8);
+      if (loadId !== this.previewLoadId || !this.selectPreviewMode) {
+        disposeObjectTree(model);
+        return;
+      }
+
+      this.clearPreviewModel();
+      this.previewModel = model;
+      this.previewModel.position.set(0, 0, 0);
+      this.previewModel.rotation.set(0.1, -0.45, 0);
+      this.scene.add(this.previewModel);
+    } catch (err) {
+      console.warn("[LaunchScene] failed to load preview GLB", err);
+    }
+  }
+
+  private clearPreviewModel(): void {
+    if (!this.previewModel) return;
+    this.scene.remove(this.previewModel);
+    disposeObjectTree(this.previewModel);
+    this.previewModel = null;
   }
 
   private updateExhaust(delta: number): void {
