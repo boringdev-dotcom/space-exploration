@@ -59,7 +59,7 @@ export class SceneManager {
     });
     // Cap pixel ratio at 1.5 — bloom + grain + splats get expensive at 2x.
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
-    this.renderer.setSize(window.innerWidth, window.innerHeight, false);
+    this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.1;
@@ -274,7 +274,7 @@ export class SceneManager {
   private readonly onResize = (): void => {
     const w = window.innerWidth;
     const h = window.innerHeight;
-    this.renderer.setSize(w, h, false);
+    this.renderer.setSize(w, h);
     this.post.setSize(w, h);
     this.launch.resize(w, h);
     this.flight.resize(w, h);
