@@ -8,19 +8,63 @@ import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 interface Args {
   onPreview: (planet: Planet) => void;
   onSelect: (planet: Planet) => void;
+  onLaunch: (planet: Planet) => void;
 }
 
 /** Renders the Destination Selector: 4 holographic planet cards. */
-export function mountSelectHud({ onPreview, onSelect }: Args): () => void {
+export function mountSelectHud({ onPreview, onSelect, onLaunch }: Args): () => void {
   const grid = document.getElementById("planet-grid");
+  const previewHost = document.getElementById("select-model-preview");
+  const emptyState = document.getElementById("select-preview-empty");
+  const missionPanel = document.getElementById("select-mission-panel");
+  const detailName = document.getElementById("select-detail-name");
+  const detailFlavor = document.getElementById("select-detail-flavor");
+  const detailDistance = document.getElementById("select-detail-distance");
+  const detailGravity = document.getElementById("select-detail-gravity");
+  const detailAtmosphere = document.getElementById("select-detail-atmosphere");
+  const detailTemp = document.getElementById("select-detail-temp");
+  const status = document.getElementById("select-preview-status");
+  const coords = document.getElementById("select-preview-coords");
+  const sector = document.getElementById("select-preview-sector");
+  const mode = document.getElementById("select-preview-mode");
+  const launchBtn = document.getElementById("select-launch-btn") as HTMLButtonElement | null;
   if (!grid) return () => {};
 
   grid.innerHTML = "";
   const cleanups: Array<() => void> = [];
+  const cards = new Map<string, HTMLButtonElement>();
+  const mapPreview = previewHost ? mountMapModelPreview(previewHost) : null;
+  let selectedPlanet: Planet | null = null;
+
+  const selectPlanet = (planet: Planet): void => {
+    selectedPlanet = planet;
+    onSelect(planet);
+
+    cards.forEach((card, id) => {
+      card.classList.toggle("is-selected", id === planet.id);
+      card.setAttribute("aria-pressed", id === planet.id ? "true" : "false");
+    });
+
+    if (emptyState) emptyState.hidden = true;
+    if (missionPanel) missionPanel.hidden = false;
+    if (detailName) detailName.textContent = planet.name.toUpperCase();
+    if (detailFlavor) detailFlavor.textContent = planet.flavor;
+    if (detailDistance) detailDistance.textContent = formatDistance(planet.distanceMkm);
+    if (detailGravity) detailGravity.textContent = `${planet.gravityG.toFixed(2)} g`;
+    if (detailAtmosphere) detailAtmosphere.textContent = planet.atmosphere;
+    if (detailTemp) detailTemp.textContent = planet.surfaceTemp;
+    if (coords) coords.textContent = targetCoords(planet);
+    if (sector) sector.textContent = `SEC: ${planet.id.toUpperCase()}_APPROACH`;
+    if (mode) mode.textContent = "DRAG TO INSPECT";
+    if (status) status.textContent = "SYS_TRACKING: TARGET LOCK";
+
+    mapPreview?.preview(planet);
+  };
 
   PLANETS.forEach((planet, idx) => {
     const card = document.createElement("button");
     card.type = "button";
+    card.setAttribute("aria-pressed", "false");
     card.className = `planet-card fade-in${planet.modelUrl ? " has-model" : ""}`;
     card.style.animationDelay = `${idx * 80}ms`;
     card.style.setProperty("--planet-light", planet.theme.light);
@@ -73,7 +117,7 @@ export function mountSelectHud({ onPreview, onSelect }: Args): () => void {
         return;
       }
       playCue("click");
-      onSelect(planet);
+      selectPlanet(planet);
     };
     card.addEventListener("mouseenter", onHover);
     card.addEventListener("focus", onFocus);
@@ -86,10 +130,23 @@ export function mountSelectHud({ onPreview, onSelect }: Args): () => void {
     });
 
     grid.appendChild(card);
+    cards.set(planet.id, card);
   });
+
+  const launch = (): void => {
+    if (!selectedPlanet) return;
+    playCue("launch");
+    onLaunch(selectedPlanet);
+  };
+  const onLaunchHover = (): void => playCue("hover");
+  launchBtn?.addEventListener("mouseenter", onLaunchHover);
+  launchBtn?.addEventListener("click", launch);
 
   return () => {
     cleanups.forEach((fn) => fn());
+    mapPreview?.cleanup();
+    launchBtn?.removeEventListener("mouseenter", onLaunchHover);
+    launchBtn?.removeEventListener("click", launch);
     grid.innerHTML = "";
   };
 }
@@ -104,9 +161,27 @@ function formatDistance(mkm: number): string {
   return `${mkm.toFixed(0)} M km`;
 }
 
+function targetCoords(planet: Planet): string {
+  const seed = planet.id.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0);
+  const x = seed * 7.31 - 420;
+  const y = seed * -2.17 + 1020;
+  const z = planet.gravityG * -0.03;
+  return `COORD: X${formatSigned(x, 2)} Y${formatSigned(y, 1)} Z${formatSigned(z, 3)}`;
+}
+
+function formatSigned(value: number, digits: number): string {
+  const prefix = value >= 0 ? "+" : "";
+  return `${prefix}${value.toFixed(digits)}`;
+}
+
 interface CardModelPreview {
   cleanup: () => void;
   shouldSuppressClick: () => boolean;
+}
+
+interface MapModelPreview {
+  preview: (planet: Planet) => void;
+  cleanup: () => void;
 }
 
 interface CardPreviewTuning {
@@ -166,6 +241,173 @@ const CARD_PREVIEW_BY_PLANET: Partial<Record<string, Partial<CardPreviewTuning>>
     maxDistance: 6.4,
   },
 };
+
+const MAP_PREVIEW_BY_PLANET: Partial<Record<string, Partial<CardPreviewTuning>>> = {
+  luna: {
+    diameter: 4.2,
+    cameraY: 0.05,
+    cameraZ: 6.2,
+    minDistance: 3.8,
+    maxDistance: 9.2,
+    rotation: [0.02, 1.4, 0],
+    ambient: [0xeaf4ff, 1.25],
+    key: [0xffffff, 2.6],
+    rim: [0x9fcfff, 1.7],
+  },
+  mars: {
+    diameter: 4.8,
+    cameraY: 0.05,
+    cameraZ: 6.5,
+    minDistance: 4.2,
+    maxDistance: 10.5,
+    rotation: [0.05, -0.8, 0],
+  },
+  europa: {
+    diameter: 4.1,
+    cameraY: 0.04,
+    cameraZ: 6.6,
+    minDistance: 4.1,
+    maxDistance: 10,
+    rotation: [0, -1.15, 0],
+    ambient: [0xe8f7ff, 1.35],
+    key: [0xf8fcff, 2.7],
+    rim: [0x8fdcff, 2.0],
+  },
+  titan: {
+    diameter: 4.8,
+    cameraY: 0.1,
+    cameraZ: 6.4,
+    minDistance: 4.1,
+    maxDistance: 10.2,
+    rotation: [0.08, -0.5, 0],
+  },
+};
+
+function mountMapModelPreview(host: HTMLElement): MapModelPreview {
+  const scene = new THREE.Scene();
+  const camera = new THREE.PerspectiveCamera(36, 1, 0.05, 100);
+  const renderer = new THREE.WebGLRenderer({
+    alpha: true,
+    antialias: true,
+    powerPreference: "high-performance",
+  });
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.domElement.className = "select-model-preview__canvas";
+  host.appendChild(renderer.domElement);
+
+  const controls = new OrbitControls(camera, renderer.domElement);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = true;
+  controls.enableZoom = true;
+  controls.rotateSpeed = 0.65;
+  controls.panSpeed = 0.35;
+  controls.zoomSpeed = 0.75;
+  controls.target.set(0, 0, 0);
+
+  let ambient: THREE.AmbientLight | null = null;
+  let key: THREE.DirectionalLight | null = null;
+  let rim: THREE.DirectionalLight | null = null;
+  let model: THREE.Group | null = null;
+  let disposed = false;
+  let loadId = 0;
+  let frameId = 0;
+
+  const setLights = (tuning: CardPreviewTuning): void => {
+    if (ambient) scene.remove(ambient);
+    if (key) scene.remove(key);
+    if (rim) scene.remove(rim);
+
+    ambient = new THREE.AmbientLight(tuning.ambient[0], tuning.ambient[1]);
+    key = new THREE.DirectionalLight(tuning.key[0], tuning.key[1]);
+    key.position.set(3.5, 2.4, 4.2);
+    rim = new THREE.DirectionalLight(tuning.rim[0], tuning.rim[1]);
+    rim.position.set(-4, 1.6, -3.2);
+
+    scene.add(ambient, key, rim);
+  };
+
+  const resize = (): void => {
+    const width = Math.max(1, host.clientWidth);
+    const height = Math.max(1, host.clientHeight);
+    renderer.setSize(width, height, false);
+    camera.aspect = width / height;
+    camera.updateProjectionMatrix();
+  };
+
+  const resizeObserver = new ResizeObserver(resize);
+  resizeObserver.observe(host);
+  resize();
+
+  const render = (): void => {
+    frameId = window.requestAnimationFrame(render);
+    controls.update();
+    if (model) model.rotation.y += 0.0018;
+    renderer.render(scene, camera);
+  };
+  render();
+
+  const clearModel = (): void => {
+    if (!model) return;
+    scene.remove(model);
+    disposeObjectTree(model);
+    model = null;
+  };
+
+  return {
+    preview: (planet: Planet): void => {
+      loadId += 1;
+      const currentLoadId = loadId;
+      clearModel();
+
+      const tuning = {
+        ...DEFAULT_CARD_PREVIEW,
+        diameter: 4.8,
+        cameraY: 0.08,
+        cameraZ: 6.4,
+        minDistance: 4.0,
+        maxDistance: 10.5,
+        ...MAP_PREVIEW_BY_PLANET[planet.id],
+      };
+
+      camera.position.set(0, tuning.cameraY, tuning.cameraZ);
+      controls.minDistance = tuning.minDistance;
+      controls.maxDistance = tuning.maxDistance;
+      controls.target.set(0, 0, 0);
+      controls.update();
+      setLights(tuning);
+
+      if (!planet.modelUrl) return;
+
+      void loadNormalizedGltfModel(planet.modelUrl, tuning.diameter)
+        .then((loaded) => {
+          if (disposed || currentLoadId !== loadId) {
+            disposeObjectTree(loaded);
+            return;
+          }
+
+          model = loaded;
+          model.rotation.set(...tuning.rotation);
+          model.position.set(...tuning.position);
+          scene.add(model);
+        })
+        .catch((err) => {
+          console.warn("[DestinationSelector] failed to load map GLB", err);
+        });
+    },
+    cleanup: () => {
+      disposed = true;
+      window.cancelAnimationFrame(frameId);
+      resizeObserver.disconnect();
+      clearModel();
+      controls.dispose();
+      renderer.dispose();
+      renderer.domElement.remove();
+    },
+  };
+}
 
 function mountCardModelPreview(host: HTMLElement, planet: Planet): CardModelPreview {
   const tuning = {

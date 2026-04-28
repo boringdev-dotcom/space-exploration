@@ -176,17 +176,23 @@
             <!-- Map / star field area -->
             <div class="select-map">
               <div class="grid-overlay" aria-hidden="true"></div>
+              <div id="select-model-preview" class="select-model-preview" aria-label="Destination 3D preview"></div>
+              <div id="select-preview-empty" class="select-preview-empty">
+                <span class="material-symbols-outlined">public</span>
+                <strong>Select a destination</strong>
+                <span>Load the target GLB for mission inspection</span>
+              </div>
               <div class="map-corner map-corner--tl">
                 <span class="status-dot status-dot--err"></span>
-                <span class="t-mono t-meta">SYS_TRACKING: ONLINE</span>
+                <span id="select-preview-status" class="t-mono t-meta">SYS_TRACKING: ONLINE</span>
               </div>
               <div class="map-corner map-corner--bl">
-                COORD: X-459.22 Y-112.8 Z-0.005<br />
-                SEC: ARES_QUADRANT
+                <span id="select-preview-coords">COORD: X-459.22 Y-112.8 Z-0.005</span><br />
+                <span id="select-preview-sector">SEC: ARES_QUADRANT</span>
               </div>
               <div class="map-corner map-corner--br">
                 <span class="material-symbols-outlined">my_location</span>
-                <span class="t-label">LOCATING TARGET</span>
+                <span id="select-preview-mode" class="t-label">LOCATING TARGET</span>
               </div>
             </div>
 
@@ -196,6 +202,36 @@
                 <span class="t-label">Stellar Cartography · select target</span>
                 <h1 class="t-display">Plot Your Course</h1>
               </header>
+              <div id="select-mission-panel" class="select-mission-panel" hidden>
+                <div class="select-mission-panel__copy">
+                  <span class="t-label">TARGET LOCK</span>
+                  <h2 id="select-detail-name" class="t-headline">—</h2>
+                  <p id="select-detail-flavor" class="select-detail-flavor">Awaiting target scan…</p>
+                </div>
+                <div class="select-mission-panel__stats">
+                  <div>
+                    <span class="t-label">DISTANCE</span>
+                    <strong id="select-detail-distance" class="t-mono hud-glow">—</strong>
+                  </div>
+                  <div>
+                    <span class="t-label">GRAVITY</span>
+                    <strong id="select-detail-gravity" class="t-mono hud-glow">—</strong>
+                  </div>
+                  <div>
+                    <span class="t-label">ATMOSPHERE</span>
+                    <strong id="select-detail-atmosphere" class="t-mono hud-glow">—</strong>
+                  </div>
+                  <div>
+                    <span class="t-label">TEMP</span>
+                    <strong id="select-detail-temp" class="t-mono hud-glow">—</strong>
+                  </div>
+                </div>
+                <button id="select-launch-btn" class="btn btn--primary" type="button">
+                  <span class="material-symbols-outlined btn__icon">rocket_launch</span>
+                  Launch Mission
+                  <span class="btn__shimmer"></span>
+                </button>
+              </div>
               <div id="planet-grid" class="planet-grid"></div>
             </aside>
           </div>

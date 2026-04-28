@@ -205,7 +205,9 @@ export class SceneManager {
         onPreview: () => {},
         onSelect: (planet) => {
           this.selectedPlanet = planet;
-          playCue("click");
+        },
+        onLaunch: (planet) => {
+          this.selectedPlanet = planet;
           this.setState("flight");
         },
       }),
