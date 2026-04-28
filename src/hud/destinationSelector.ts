@@ -21,7 +21,7 @@ export function mountSelectHud({ onPreview, onSelect }: Args): () => void {
   PLANETS.forEach((planet, idx) => {
     const card = document.createElement("button");
     card.type = "button";
-    card.className = `planet-card clipped fade-in${planet.modelUrl ? " has-model" : ""}`;
+    card.className = `planet-card fade-in${planet.modelUrl ? " has-model" : ""}`;
     card.style.animationDelay = `${idx * 80}ms`;
     card.style.setProperty("--planet-light", planet.theme.light);
     card.style.setProperty("--planet-mid", planet.theme.mid);
@@ -33,20 +33,26 @@ export function mountSelectHud({ onPreview, onSelect }: Args): () => void {
         <div class="planet-card__orb"></div>
         ${planet.modelUrl ? '<div class="planet-card__model" aria-hidden="true"></div>' : ""}
       </div>
-      <div class="planet-card__name">${planet.name}</div>
-      <div class="planet-card__sub">${planet.tagline}</div>
-      <div class="planet-card__stats">
-        <div class="telemetry__row">
-          <span class="telemetry__label">Distance</span>
-          <span class="telemetry__value t-mono">${formatDistance(planet.distanceMkm)}</span>
-        </div>
-        <div class="telemetry__row">
-          <span class="telemetry__label">Gravity</span>
-          <span class="telemetry__value t-mono">${planet.gravityG.toFixed(2)} g</span>
-        </div>
-        <div class="telemetry__row">
-          <span class="telemetry__label">Atmos.</span>
-          <span class="telemetry__value t-mono">${planet.atmosphere}</span>
+      <div class="planet-card__body">
+        <div class="planet-card__name">${planet.name}</div>
+        <div class="planet-card__sub">${planet.tagline}</div>
+        <div class="planet-card__stats">
+          <div class="telemetry__row">
+            <span class="telemetry__label">Distance</span>
+            <span class="telemetry__value t-mono">${formatDistance(planet.distanceMkm)}</span>
+          </div>
+          <div class="telemetry__row">
+            <span class="telemetry__label">Gravity</span>
+            <span class="telemetry__value t-mono">${planet.gravityG.toFixed(2)} g</span>
+          </div>
+          <div class="telemetry__row">
+            <span class="telemetry__label">Atmos.</span>
+            <span class="telemetry__value t-mono">${planet.atmosphere}</span>
+          </div>
+          <div class="telemetry__row">
+            <span class="telemetry__label">Temp</span>
+            <span class="telemetry__value t-mono">${planet.surfaceTemp}</span>
+          </div>
         </div>
       </div>
     `;

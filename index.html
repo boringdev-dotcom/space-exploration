@@ -3,9 +3,12 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#101419" />
-    <title>Interstellar Spark Odyssey</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%2300f3ff'/%3E%3C/svg%3E" />
+    <meta name="theme-color" content="#111318" />
+    <title>AERO-SIM V.1 · Interstellar Flight Simulator</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='40' fill='%234cd6ff'/%3E%3C/svg%3E"
+    />
     <link rel="stylesheet" href="/src/styles/tokens.css" />
     <link rel="stylesheet" href="/src/styles/hud.css" />
   </head>
@@ -14,157 +17,325 @@
       <canvas id="stage" tabindex="0"></canvas>
 
       <div id="hud-root">
+        <!-- =================== TOP APP BAR =================== -->
+        <header id="top-bar" class="top-bar">
+          <div class="top-bar__brand">
+            <span class="brand-mark">AERO-SIM V.1</span>
+          </div>
+
+          <nav class="top-bar__nav" aria-label="Mission sections">
+            <a href="#" class="nav-link" data-section="hangar">Hangar</a>
+            <a href="#" class="nav-link" data-section="control">Mission Control</a>
+            <a href="#" class="nav-link is-active" data-section="telemetry">Telemetry</a>
+            <a href="#" class="nav-link" data-section="fleet">Fleet</a>
+          </nav>
+
+          <div class="top-bar__actions">
+            <button class="icon-btn" aria-label="Comms">
+              <span class="material-symbols-outlined is-fill">wifi</span>
+            </button>
+            <button class="icon-btn" aria-label="Wallet">
+              <span class="material-symbols-outlined">account_balance_wallet</span>
+            </button>
+            <button class="icon-btn" aria-label="Pilot profile">
+              <span class="material-symbols-outlined is-fill">account_circle</span>
+            </button>
+          </div>
+        </header>
+
+        <!-- =================== SIDE NAV =================== -->
+        <aside id="side-nav" class="side-nav" aria-label="Cockpit modes">
+          <nav class="side-nav__list">
+            <a href="#" class="side-link" data-screen="launch">
+              <span class="material-symbols-outlined">rocket_launch</span>
+              <span class="side-link__label">Hangar</span>
+            </a>
+            <a href="#" class="side-link" data-screen="select">
+              <span class="material-symbols-outlined">explore</span>
+              <span class="side-link__label">Star Map</span>
+            </a>
+            <a href="#" class="side-link" data-screen="flight">
+              <span class="material-symbols-outlined">navigation</span>
+              <span class="side-link__label">In-Flight</span>
+            </a>
+            <a href="#" class="side-link" data-screen="surface">
+              <span class="material-symbols-outlined">terrain</span>
+              <span class="side-link__label">Surface</span>
+            </a>
+          </nav>
+
+          <div class="side-nav__footer">
+            <div class="side-nav__title">COMMAND</div>
+            <div class="side-nav__sub">ORBITAL STATUS: ACTIVE</div>
+          </div>
+        </aside>
+
         <!-- =================== LAUNCH CONTROL =================== -->
         <section id="screen-launch" class="hud-screen">
           <div class="launch-grid">
+            <!-- Top-left identity & target -->
             <div class="panel-top-left">
-              <div class="target-lock bracketed">
-                <span>Target Lock</span>
-                <strong id="launch-target-label">TERRA_01</strong>
-              </div>
-              <div class="coords" style="margin-top: 12px">
-                LAT: 28.5729 | LONG: -80.6490
-              </div>
+              <div class="hud-decor"></div>
+              <p class="status-line">
+                <span class="status-dot"></span>
+                <span>SYSTEM READY</span>
+              </p>
+              <h1 class="hero-title">
+                X-92<br />Vanguard
+              </h1>
+              <p class="hero-meta">
+                CLASS: ORBITAL INTERCEPTOR<br />
+                LOCATION: <span id="launch-target-label">SECTOR 4 SHIPYARD</span>
+              </p>
+              <p class="coords">LAT 28.5729 · LONG -80.6490</p>
             </div>
 
+            <!-- Top-right "Telemetry" chip -->
             <div class="panel-top-right">
-              <span class="chip">System Nominal</span>
+              <span class="chip"><span class="material-symbols-outlined chip__icon">verified</span>System Nominal</span>
             </div>
 
+            <!-- Center: countdown -->
             <div class="panel-center">
-              <div class="countdown-label">Countdown to Ignition</div>
-              <h1 id="launch-countdown" class="countdown">00:04:28</h1>
+              <div class="countdown-label">
+                <span class="material-symbols-outlined">schedule</span>
+                Countdown to Ignition
+              </div>
+              <h2 id="launch-countdown" class="countdown">00:04:28</h2>
               <div class="countdown-meta">
-                <span class="t-label">T-Minus Phase: <span style="color: var(--primary)">DELTA</span></span>
-                <span class="t-label">Weather: <span style="color: var(--primary)">GO</span></span>
+                <span class="t-label">T-Minus Phase: <span class="hud-glow">DELTA</span></span>
+                <span class="dot-divider"></span>
+                <span class="t-label">Weather: <span class="hud-glow">GO</span></span>
               </div>
             </div>
 
+            <!-- Bottom-left: Main Propellant card -->
             <div class="panel-bottom-left">
-              <div class="glass clipped module">
-                <div class="module-title">FLIGHT_TELEMETRY · analytics</div>
-                <div class="telemetry">
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Velocity</span>
-                    <span class="telemetry__value" id="launch-velocity">28,400 KM/H</span>
-                  </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Fuel Reserves</span>
-                    <span class="telemetry__value">94.2%</span>
-                  </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Trajectory</span>
-                    <span class="telemetry__value">DELTA NOMINAL</span>
-                  </div>
+              <div class="hud-card">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">MAIN PROPELLANT</span>
+                  <span class="t-mono t-data hud-glow">94%</span>
+                </div>
+                <div class="seg-bar" data-fill="9">
+                  <span></span><span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <div class="hud-card__foot">
+                  <span class="t-mono t-meta">LOX 1,240 KG</span>
+                  <span class="t-mono t-meta">RP-1 890 KG</span>
                 </div>
               </div>
             </div>
 
+            <!-- Bottom-center: Initiate Launch -->
             <div class="panel-bottom-center">
-              <button id="launch-btn" class="btn btn--primary clipped" type="button">
-                <span>⏻</span> Initiate Launch
+              <button id="launch-btn" class="btn btn--primary" type="button">
+                <span class="material-symbols-outlined btn__icon">play_arrow</span>
+                <span>Initiate Launch</span>
+                <span class="btn__shimmer"></span>
               </button>
+              <button id="launch-hangar-btn" class="btn btn--ghost" type="button">Hangar</button>
             </div>
 
+            <!-- Bottom-right: Hull Integrity card -->
             <div class="panel-bottom-right">
-              <div class="glass clipped module">
-                <div class="module-title">ENGINE_ARRAY_01 · systems</div>
-                <div class="telemetry">
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Core Temp</span>
-                    <span class="telemetry__value">1,240 K</span>
-                  </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Thrust</span>
-                    <span class="telemetry__value">102%</span>
-                  </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Pressure</span>
-                    <span class="telemetry__value">640 PSI</span>
-                  </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Stability</span>
-                    <span class="telemetry__value">SAFE</span>
-                  </div>
+              <div class="hud-card">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">HULL INTEGRITY</span>
+                  <span class="t-mono t-data hud-glow secondary">100%</span>
+                </div>
+                <div class="hud-row">
+                  <span class="material-symbols-outlined hud-row__icon secondary">shield</span>
+                  <div class="line-bar"><span class="line-bar__fill secondary" style="width: 100%"></span></div>
+                </div>
+                <div class="micro-grid">
+                  <div><span class="t-label">CORE</span><strong class="t-mono">1,240 K</strong></div>
+                  <div><span class="t-label">THRUST</span><strong class="t-mono">102%</strong></div>
+                  <div><span class="t-label">PRESSURE</span><strong class="t-mono">640 PSI</strong></div>
+                  <div><span class="t-label">STABLE</span><strong class="t-mono hud-glow">SAFE</strong></div>
                 </div>
               </div>
             </div>
+
+            <!-- Faint ambient grid behind everything -->
+            <div class="grid-overlay" aria-hidden="true"></div>
           </div>
         </section>
 
-        <!-- =================== DESTINATION SELECTOR =================== -->
+        <!-- =================== STAR MAP / DESTINATION SELECTOR =================== -->
         <section id="screen-select" class="hud-screen">
-          <header class="select-header">
-            <span class="t-label">Stellar Cartography · select target</span>
-            <h1 class="t-display">Plot Your Course</h1>
-          </header>
-          <div id="planet-grid" class="planet-grid"></div>
+          <div class="select-layout">
+            <!-- Map / star field area -->
+            <div class="select-map">
+              <div class="grid-overlay" aria-hidden="true"></div>
+              <div class="map-corner map-corner--tl">
+                <span class="status-dot status-dot--err"></span>
+                <span class="t-mono t-meta">SYS_TRACKING: ONLINE</span>
+              </div>
+              <div class="map-corner map-corner--bl">
+                COORD: X-459.22 Y-112.8 Z-0.005<br />
+                SEC: ARES_QUADRANT
+              </div>
+              <div class="map-corner map-corner--br">
+                <span class="material-symbols-outlined">my_location</span>
+                <span class="t-label">LOCATING TARGET</span>
+              </div>
+            </div>
+
+            <!-- Right column: planet selector -->
+            <aside class="select-side">
+              <header class="select-header">
+                <span class="t-label">Stellar Cartography · select target</span>
+                <h1 class="t-display">Plot Your Course</h1>
+              </header>
+              <div id="planet-grid" class="planet-grid"></div>
+            </aside>
+          </div>
         </section>
 
         <!-- =================== IN-FLIGHT NAVIGATION =================== -->
         <section id="screen-flight" class="hud-screen">
           <div class="flight-grid">
-            <div class="panel-top-left">
-              <div class="target-lock bracketed">
-                <span>En Route To</span>
+            <!-- Left column: Velocity + Altitude blocks -->
+            <div class="flight-left">
+              <div class="hud-card">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">VELOCITY [REL]</span>
+                  <span class="t-mono t-meta primary-dim">KM/S</span>
+                </div>
+                <div id="flight-velocity" class="readout readout--xl hud-glow">07.824</div>
+                <div class="seg-bar" id="flight-velocity-bar" data-fill="4">
+                  <span></span><span></span><span></span><span></span>
+                  <span></span><span></span><span></span>
+                </div>
+                <div class="seg-bar__legend">
+                  <span>0</span>
+                  <span>ORBITAL V.</span>
+                  <span>ESCAPE V.</span>
+                </div>
+              </div>
+
+              <div class="hud-card">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">DISTANCE</span>
+                  <span class="t-mono t-meta primary-dim">REMAINING</span>
+                </div>
+                <div class="readout readout--lg hud-glow">
+                  <span id="flight-distance">— km</span>
+                </div>
+                <div class="travel-progress">
+                  <div class="travel-progress__bar">
+                    <div class="travel-progress__fill" id="flight-progress"></div>
+                  </div>
+                  <div class="travel-progress__meta">
+                    <span class="t-mono t-meta">VECTOR DELTA</span>
+                    <span class="t-mono t-meta primary-dim">SUBLIGHT · ENGAGED</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Center: Navball / reticle -->
+            <div class="flight-center">
+              <div class="navball" aria-hidden="true">
+                <div class="navball__heading-tape">
+                  <span>075</span><span>080</span><span class="is-cur">085</span><span>090</span><span>095</span>
+                  <span class="navball__heading-pointer"></span>
+                </div>
+                <div class="navball__outer"></div>
+                <div class="navball__inner"></div>
+                <div class="navball__pitch navball__pitch--up-far"></div>
+                <div class="navball__pitch navball__pitch--up-near"></div>
+                <div class="navball__pitch navball__pitch--down-near"></div>
+                <div class="navball__pitch navball__pitch--down-far"></div>
+                <div class="navball__prograde">
+                  <span class="navball__prograde-dot"></span>
+                  <span class="navball__prograde-wing navball__prograde-wing--l"></span>
+                  <span class="navball__prograde-wing navball__prograde-wing--r"></span>
+                  <span class="navball__prograde-wing navball__prograde-wing--t"></span>
+                </div>
+              </div>
+              <div class="flight-target">
+                <span class="t-label">EN ROUTE TO</span>
                 <strong id="flight-target-name">—</strong>
               </div>
             </div>
 
-            <div class="panel-top-right">
-              <div class="glass clipped module">
-                <div class="module-title">NAV · vector lock</div>
-                <div class="telemetry">
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Velocity</span>
-                    <span class="telemetry__value t-mono" id="flight-velocity">0 km/s</span>
+            <!-- Right column: G-Force + Fuel -->
+            <div class="flight-right">
+              <div class="hud-card">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">ACCELERATION</span>
+                  <span class="t-mono t-meta primary-dim">G-FRC</span>
+                </div>
+                <div class="g-force">
+                  <div class="readout readout--lg hud-glow">1.02</div>
+                  <div class="g-force__gauge">
+                    <svg viewBox="0 0 36 36">
+                      <path
+                        class="g-force__track"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      ></path>
+                      <path
+                        class="g-force__fill"
+                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                      ></path>
+                    </svg>
                   </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">ETA</span>
-                    <span class="telemetry__value t-mono" id="flight-eta">—</span>
-                  </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Drift</span>
-                    <span class="telemetry__value t-mono">0.002°</span>
-                  </div>
+                </div>
+              </div>
+
+              <div class="hud-card hud-card--warn">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head warn">
+                  <span class="t-label warn">
+                    <span class="material-symbols-outlined warn">timer</span>
+                    ETA
+                  </span>
+                  <span id="flight-eta" class="t-mono t-data hud-glow secondary">—</span>
+                </div>
+                <div class="hud-card__head" style="margin-top: 12px">
+                  <span class="t-label">HEADING</span>
+                  <span id="flight-heading" class="t-mono t-data hud-glow">000°</span>
+                </div>
+                <div class="compass" aria-hidden="true">
+                  <div class="compass__needle" id="flight-needle"></div>
                 </div>
               </div>
             </div>
 
-            <div class="panel-center">
-              <div class="reticle">
-                <span class="reticle__label">Vector · Locked</span>
-                <span class="reticle__crosshair"></span>
-              </div>
+            <!-- Bottom skip -->
+            <div class="flight-skip">
+              <button id="flight-skip-btn" class="btn btn--ghost" type="button">
+                Skip Approach
+                <span class="material-symbols-outlined btn__icon">fast_forward</span>
+              </button>
             </div>
 
-            <div class="panel-bottom-left">
-              <div class="compass">
-                <div class="compass__needle" id="flight-needle"></div>
-                <div class="compass__label">
-                  <strong id="flight-heading">000°</strong>
-                  <span>HEADING</span>
-                </div>
-              </div>
-            </div>
-
-            <div class="panel-bottom-center column" style="align-items: center">
-              <div class="travel-progress glass clipped" style="padding: 18px 22px">
-                <div class="module-title">TRANSIT · approach</div>
-                <div class="travel-progress__bar">
-                  <div class="travel-progress__fill" id="flight-progress"></div>
-                </div>
-                <div class="travel-progress__meta">
-                  <span id="flight-distance">— km</span>
-                  <span>VECTOR DELTA</span>
-                </div>
-              </div>
-              <button id="flight-skip-btn" class="btn btn--ghost" type="button">Skip Approach</button>
-            </div>
-
-            <div class="panel-bottom-right">
-              <span class="chip">Sublight Drive · Engaged</span>
-            </div>
+            <div class="grid-overlay" aria-hidden="true"></div>
           </div>
         </section>
 
@@ -172,90 +343,129 @@
         <section id="screen-arrival" class="hud-screen">
           <div class="arrival-layout">
             <div class="arrival-top">
-              <div class="target-lock bracketed">
-                <span>Arrival</span>
-                <strong id="arrival-target-name">—</strong>
+              <div>
+                <span class="t-label">PLANETARY ARRIVAL</span>
+                <h1 id="arrival-target-name" class="t-display">—</h1>
+                <span class="chip chip--err">
+                  <span class="status-dot status-dot--err"></span>
+                  Priority Target
+                </span>
               </div>
-              <div class="glass clipped module" style="min-width: 260px">
-                <div class="module-title">PLANETARY · vitals</div>
-                <div class="telemetry">
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Gravity</span>
-                    <span class="telemetry__value t-mono" id="arrival-gravity">—</span>
+              <div class="hud-card hud-card--compact">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">PLANETARY · vitals</span>
+                  <span class="material-symbols-outlined primary-dim">radar</span>
+                </div>
+                <div class="bento bento--3">
+                  <div>
+                    <span class="t-label">GRAVITY</span>
+                    <strong id="arrival-gravity" class="t-mono hud-glow">—</strong>
                   </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Atmosphere</span>
-                    <span class="telemetry__value t-mono" id="arrival-atmosphere">—</span>
+                  <div>
+                    <span class="t-label">ATMOSPHERE</span>
+                    <strong id="arrival-atmosphere" class="t-mono hud-glow">—</strong>
                   </div>
-                  <div class="telemetry__row">
-                    <span class="telemetry__label">Temp</span>
-                    <span class="telemetry__value t-mono" id="arrival-temp">—</span>
+                  <div>
+                    <span class="t-label">TEMP</span>
+                    <strong id="arrival-temp" class="t-mono hud-glow">—</strong>
                   </div>
                 </div>
               </div>
             </div>
 
-            <div></div>
+            <div class="arrival-center" aria-hidden="true">
+              <div class="reticle reticle--arrival">
+                <span class="reticle__crosshair"></span>
+                <svg class="reticle__path" viewBox="0 0 100 50" preserveAspectRatio="none">
+                  <path d="M0,40 Q50,5 100,30" stroke-dasharray="3 4"></path>
+                </svg>
+              </div>
+            </div>
 
             <div class="arrival-bottom">
-              <button id="arrival-deploy-btn" class="btn btn--primary clipped" type="button">
+              <button id="arrival-deploy-btn" class="btn btn--primary" type="button">
+                <span class="material-symbols-outlined btn__icon">flight_land</span>
                 Deploy Lander
               </button>
               <button id="arrival-back-btn" class="btn btn--ghost" type="button">
+                <span class="material-symbols-outlined btn__icon">undo</span>
                 Reroute
               </button>
             </div>
+            <div class="grid-overlay" aria-hidden="true"></div>
           </div>
         </section>
 
         <!-- =================== SURFACE EXPLORATION =================== -->
         <section id="screen-surface" class="hud-screen">
           <div class="surface-top">
-            <div class="target-lock bracketed">
-              <span>Surface</span>
-              <strong id="surface-target-name">—</strong>
+            <div>
+              <span class="t-label">SURFACE</span>
+              <h2 id="surface-target-name" class="t-headline">—</h2>
             </div>
             <div class="row">
               <span class="chip" id="surface-status">Lander Touchdown</span>
               <button id="surface-return-btn" class="btn btn--danger" type="button">
+                <span class="material-symbols-outlined btn__icon">logout</span>
                 Return To Orbit
               </button>
             </div>
           </div>
 
           <div class="surface-center">
-            <div class="reticle" style="width: 64px; height: 64px; opacity: 0.55">
+            <div class="reticle reticle--surface">
               <span class="reticle__crosshair"></span>
             </div>
           </div>
 
-          <div class="lock-prompt glass-strong clipped" id="surface-lock-prompt">
+          <div class="lock-prompt" id="surface-lock-prompt">
+            <span class="hud-bracket hud-bracket--tl"></span>
+            <span class="hud-bracket hud-bracket--tr"></span>
+            <span class="hud-bracket hud-bracket--bl"></span>
+            <span class="hud-bracket hud-bracket--br"></span>
             <strong>Click to engage</strong>
             <span>WASD to walk · Mouse to look · ESC to release</span>
           </div>
 
           <div class="surface-bottom">
-            <div class="glass clipped module" style="min-width: 260px">
-              <div class="module-title">EVA · life support</div>
-              <div class="telemetry">
-                <div class="telemetry__row">
-                  <span class="telemetry__label">Suit O2</span>
-                  <span class="telemetry__value t-mono">98.4%</span>
+            <div class="hud-card">
+              <span class="hud-bracket hud-bracket--tl"></span>
+              <span class="hud-bracket hud-bracket--tr"></span>
+              <span class="hud-bracket hud-bracket--bl"></span>
+              <span class="hud-bracket hud-bracket--br"></span>
+              <div class="hud-card__head">
+                <span class="t-label">EVA · life support</span>
+                <span class="material-symbols-outlined primary-dim">health_and_safety</span>
+              </div>
+              <div class="bento bento--2">
+                <div>
+                  <span class="t-label">SUIT O2</span>
+                  <strong class="t-mono hud-glow">98.4%</strong>
                 </div>
-                <div class="telemetry__row">
-                  <span class="telemetry__label">External</span>
-                  <span class="telemetry__value t-mono" id="surface-temp">—</span>
+                <div>
+                  <span class="t-label">EXTERNAL</span>
+                  <strong id="surface-temp" class="t-mono hud-glow">—</strong>
                 </div>
               </div>
             </div>
 
-            <div class="glass clipped module" style="min-width: 260px">
-              <div class="module-title">SCANNER · readout</div>
-              <div class="t-body" id="surface-flavor" style="color: var(--on-surface-variant); font-size: 13px">
-                Awaiting target scan…
+            <div class="hud-card">
+              <span class="hud-bracket hud-bracket--tl"></span>
+              <span class="hud-bracket hud-bracket--tr"></span>
+              <span class="hud-bracket hud-bracket--bl"></span>
+              <span class="hud-bracket hud-bracket--br"></span>
+              <div class="hud-card__head">
+                <span class="t-label">SCANNER · readout</span>
+                <span class="material-symbols-outlined primary-dim">radar</span>
               </div>
+              <p id="surface-flavor" class="surface-flavor">Awaiting target scan…</p>
             </div>
           </div>
+          <div class="grid-overlay" aria-hidden="true"></div>
         </section>
       </div>
 
@@ -271,9 +481,12 @@
       <!-- Mobile fallback -->
       <div id="mobile-fallback">
         <h2 class="t-headline">Cockpit Too Small</h2>
-        <p class="t-body" style="max-width: 32ch; color: var(--on-surface-variant)">
-          Interstellar Spark Odyssey is calibrated for a desktop-sized viewport. Please relaunch on a larger
-          screen for the full mission experience.
+        <p
+          class="t-body"
+          style="max-width: 32ch; color: var(--on-surface-variant)"
+        >
+          AERO-SIM V.1 is calibrated for a desktop-sized viewport. Please relaunch
+          on a larger screen for the full mission experience.
         </p>
       </div>
     </div>

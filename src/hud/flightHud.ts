@@ -19,6 +19,7 @@ interface Args {
 export function mountFlightHud(args: Args): () => void {
   const targetName = document.getElementById("flight-target-name");
   const velocityEl = document.getElementById("flight-velocity");
+  const velocityBar = document.getElementById("flight-velocity-bar");
   const etaEl = document.getElementById("flight-eta");
   const headingEl = document.getElementById("flight-heading");
   const needleEl = document.getElementById("flight-needle");
@@ -52,7 +53,12 @@ export function mountFlightHud(args: Args): () => void {
     const heading = args.getHeading();
     const distance = args.getDistanceKm();
 
-    if (velocityEl) velocityEl.textContent = `${velocity.toFixed(1)} km/s`;
+    if (velocityEl) velocityEl.textContent = velocity.toFixed(3).padStart(6, "0");
+    if (velocityBar) {
+      // Map velocity onto 7-segment scale (0..escapeV ≈ 14 km/s).
+      const segments = Math.max(1, Math.min(7, Math.round((velocity / 14) * 7)));
+      velocityBar.dataset.fill = String(segments);
+    }
     if (etaEl) etaEl.textContent = formatEta(eta);
     if (headingEl) headingEl.textContent = `${heading.toFixed(0).padStart(3, "0")}°`;
     if (needleEl) needleEl.style.transform = `translateX(-50%) rotate(${heading}deg)`;

@@ -1,69 +1,98 @@
 /*
- * Deep Space HUD design tokens.
- * Sourced from the Stitch project "Interstellar Spark Odyssey":
- * https://stitch.withgoogle.com/projects/11548640483905168998
+ * Aero-Tech / Aero-Sim V.1 design tokens.
+ * Sourced from the Stitch project "Interstellar Flight Simulator":
+ * https://stitch.withgoogle.com/projects/18273385973096859122
+ *
+ * Design philosophy: glassmorphic deep-space cockpit HUD ("Mission
+ * Criticality"). Plasma-blue primary + cautionary-orange secondary on a
+ * tiered charcoal void. Dual-font: Space Grotesk for technical/numeric
+ * readouts, Inter for body copy.
  */
 
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700;900&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap");
 
 :root {
   color-scheme: dark;
 
-  --surface: #101419;
-  --surface-dim: #101419;
-  --surface-bright: #363940;
-  --surface-container-lowest: #0b0e14;
-  --surface-container-low: #181c22;
-  --surface-container: #1c2026;
-  --surface-container-high: #262a31;
-  --surface-container-highest: #31353c;
+  /* Tiered charcoal surfaces */
+  --surface: #111318;
+  --surface-dim: #111318;
+  --surface-bright: #37393e;
+  --surface-container-lowest: #0c0e12;
+  --surface-container-low: #1a1c20;
+  --surface-container: #1e2024;
+  --surface-container-high: #282a2e;
+  --surface-container-highest: #333539;
+  --surface-variant: #333539;
 
-  --on-surface: #e0e2eb;
-  --on-surface-variant: #b9cacb;
+  --on-surface: #e2e2e8;
+  --on-surface-variant: #bbc9cf;
 
-  --primary: #00f3ff;
-  --primary-bright: #6ff6ff;
-  --primary-container: #00696f;
-  --on-primary: #00373a;
+  /* Plasma blue primary (Aero-Tech) */
+  --primary: #a4e6ff;
+  --primary-container: #00d1ff;
+  --primary-fixed: #b7eaff;
+  --primary-fixed-dim: #4cd6ff;
+  --primary-bright: #d9f5ff;
+  --on-primary: #003543;
+  --on-primary-fixed: #001f28;
 
-  --secondary: #bdc6e1;
-  --secondary-container: #40495f;
+  /* Cautionary orange secondary */
+  --secondary: #ffb693;
+  --secondary-container: #fe6b00;
+  --secondary-fixed: #ffdbcc;
+  --secondary-fixed-dim: #ffb693;
+  --on-secondary: #561f00;
 
-  --tertiary: #ffba20;
-  --tertiary-bright: #ffd68f;
+  /* Plum-violet tertiary */
+  --tertiary: #e4d6ff;
+  --tertiary-container: #cbb5ff;
+  --tertiary-fixed-dim: #d1bcff;
 
   --error: #ffb4ab;
   --error-container: #93000a;
 
-  --outline: #849495;
-  --outline-variant: #3a494b;
+  --outline: #859399;
+  --outline-variant: #3c494e;
 
-  --glow-primary: 0 0 24px rgba(0, 243, 255, 0.45);
-  --glow-primary-strong: 0 0 38px rgba(0, 243, 255, 0.65);
-  --glow-tertiary: 0 0 22px rgba(255, 186, 32, 0.5);
+  --glow-primary: 0 0 20px rgba(76, 214, 255, 0.45);
+  --glow-primary-strong: 0 0 32px rgba(76, 214, 255, 0.7);
+  --glow-primary-soft: 0 0 12px rgba(164, 230, 255, 0.45);
+  --glow-secondary: 0 0 22px rgba(254, 107, 0, 0.55);
   --glow-error: 0 0 22px rgba(255, 100, 100, 0.55);
 
-  --glass-bg: rgba(16, 28, 40, 0.42);
-  --glass-bg-strong: rgba(16, 28, 40, 0.62);
-  --glass-blur: blur(24px) saturate(140%);
-  --glass-border: 1px solid rgba(0, 243, 255, 0.32);
-  --glass-border-soft: 1px solid rgba(184, 202, 203, 0.14);
+  --glass-bg: rgba(17, 19, 24, 0.32);
+  --glass-bg-strong: rgba(17, 19, 24, 0.62);
+  --glass-blur: blur(28px) saturate(140%);
+  --glass-border: 1px solid rgba(76, 214, 255, 0.32);
+  --glass-border-soft: 1px solid rgba(60, 73, 78, 0.55);
 
-  --hud-padding: 64px;
-  --gutter: 24px;
-  --margin: 40px;
+  /* Layout */
+  --side-nav-w: 80px;
+  --top-bar-h: 72px;
+  --hud-padding: 32px;
+  --gutter: 16px;
+  --margin: 32px;
+  --stack-md: 16px;
+  --stack-lg: 32px;
+
+  /* Aero-Tech radii (small/sharp by default — "Machined Precision") */
+  --radius-xs: 0.125rem; /* 2px */
   --radius-sm: 0.125rem;
-  --radius: 0.25rem;
-  --radius-md: 0.375rem;
+  --radius: 0.25rem;     /* 4px standard */
+  --radius-md: 0.25rem;
   --radius-lg: 0.5rem;
   --radius-xl: 0.75rem;
+  --radius-full: 999px;
 
   --font-display: "Space Grotesk", system-ui, sans-serif;
-  --font-body: "Space Grotesk", system-ui, sans-serif;
-  --font-mono: "Space Grotesk", "JetBrains Mono", monospace;
+  --font-body: "Inter", system-ui, sans-serif;
+  --font-mono: "Space Grotesk", "JetBrains Mono", ui-monospace, monospace;
 
-  --letter-caps: 0.2em;
-  --letter-headline: 0.05em;
+  --letter-caps: 0.1em;
+  --letter-caps-wide: 0.2em;
+  --letter-headline: 0.01em;
   --letter-display: -0.02em;
 }
 
@@ -80,6 +109,8 @@ body {
   background: var(--surface);
   color: var(--on-surface);
   font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.5;
   overflow: hidden;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
@@ -87,4 +118,13 @@ body {
 
 button {
   font-family: inherit;
+}
+
+.material-symbols-outlined {
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+  user-select: none;
+}
+
+.material-symbols-outlined.is-fill {
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 24;
 }
