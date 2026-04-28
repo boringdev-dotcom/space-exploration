@@ -998,6 +998,146 @@
 }
 
 /* =====================================================================
+ * INTERACTIVE HANGAR screen
+ * ===================================================================== */
+
+#screen-hangar {
+  pointer-events: none;
+}
+
+#screen-hangar .hangar-layout {
+  position: relative;
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(280px, 0.8fr) minmax(360px, 1.4fr) minmax(280px, 0.8fr);
+  grid-template-rows: auto 1fr auto;
+  gap: var(--gutter);
+}
+
+#screen-hangar.hud-screen.is-active > .hangar-layout {
+  pointer-events: none;
+}
+
+.hangar-top {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  pointer-events: auto;
+}
+
+.hangar-top .t-display {
+  margin-top: 6px;
+  text-transform: uppercase;
+}
+
+.hangar-copy {
+  max-width: 46ch;
+  margin: 10px 0 0;
+  color: var(--on-surface-variant);
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.hangar-left {
+  grid-column: 1;
+  grid-row: 2;
+  align-self: end;
+  pointer-events: auto;
+}
+
+.hangar-right {
+  grid-column: 3;
+  grid-row: 2;
+  align-self: center;
+  pointer-events: auto;
+}
+
+.hangar-bottom {
+  grid-column: 2;
+  grid-row: 3;
+  display: flex;
+  justify-content: center;
+  pointer-events: auto;
+}
+
+.hangar-reticle {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: min(44vw, 620px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -46%);
+  pointer-events: none;
+  opacity: 0.46;
+}
+
+.hangar-reticle__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px dashed rgba(76, 214, 255, 0.22);
+  box-shadow: inset 0 0 60px rgba(76, 214, 255, 0.035),
+    0 0 40px rgba(76, 214, 255, 0.04);
+  animation: spin 80s linear infinite;
+}
+
+.hangar-reticle__ring::before,
+.hangar-reticle__ring::after {
+  content: "";
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 182, 147, 0.12);
+}
+
+.hangar-reticle__ring::before {
+  inset: 13%;
+}
+
+.hangar-reticle__ring::after {
+  inset: 28%;
+  border-color: rgba(76, 214, 255, 0.14);
+}
+
+.hangar-reticle__axis {
+  position: absolute;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(76, 214, 255, 0.18),
+    transparent
+  );
+}
+
+.hangar-reticle__axis--x {
+  top: 50%;
+  left: 4%;
+  right: 4%;
+  height: 1px;
+}
+
+.hangar-reticle__axis--y {
+  top: 4%;
+  bottom: 4%;
+  left: 50%;
+  width: 1px;
+  background: linear-gradient(
+    180deg,
+    transparent,
+    rgba(76, 214, 255, 0.18),
+    transparent
+  );
+}
+
+#screen-hangar .grid-overlay {
+  opacity: 0.38;
+  mask-image: radial-gradient(ellipse at center, black 42%, transparent 88%);
+  -webkit-mask-image: radial-gradient(ellipse at center, black 42%, transparent 88%);
+}
+
+/* =====================================================================
  * STAR MAP / DESTINATION SELECTOR screen
  * ===================================================================== */
 
@@ -1086,12 +1226,7 @@
 
 .select-map .grid-overlay {
   z-index: 0;
-  background-size: 40px 40px;
-  background-image: linear-gradient(rgba(76, 214, 255, 0.07) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(76, 214, 255, 0.07) 1px, transparent 1px);
-  mask-image: none;
-  -webkit-mask-image: none;
-  opacity: 0.7;
+  display: none;
 }
 
 .map-corner {
@@ -1137,11 +1272,82 @@
   backdrop-filter: blur(12px);
   color: var(--on-surface);
   border-radius: 2px;
+  overflow: hidden;
 }
 
 .map-corner--br .material-symbols-outlined {
   color: var(--primary-fixed-dim);
   font-size: 16px;
+  animation: dragHintIcon 1.8s ease-in-out infinite;
+  filter: drop-shadow(0 0 6px rgba(76, 214, 255, 0.45));
+}
+
+.map-corner--br::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -45%;
+  width: 40%;
+  pointer-events: none;
+  background: linear-gradient(
+    100deg,
+    transparent,
+    rgba(164, 230, 255, 0.2),
+    transparent
+  );
+  animation: dragHintSweep 2.6s ease-in-out infinite;
+}
+
+#select-preview-mode {
+  animation: dragHintText 1.8s ease-in-out infinite;
+}
+
+@keyframes dragHintIcon {
+  0%,
+  100% {
+    transform: translateX(-2px);
+    opacity: 0.78;
+  }
+  50% {
+    transform: translateX(4px);
+    opacity: 1;
+  }
+}
+
+@keyframes dragHintSweep {
+  0% {
+    transform: translateX(0);
+    opacity: 0;
+  }
+  30%,
+  65% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(360%);
+    opacity: 0;
+  }
+}
+
+@keyframes dragHintText {
+  0%,
+  100% {
+    color: var(--on-surface);
+    text-shadow: none;
+  }
+  50% {
+    color: var(--primary-fixed-dim);
+    text-shadow: 0 0 8px rgba(76, 214, 255, 0.5);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .map-corner--br .material-symbols-outlined,
+  .map-corner--br::after,
+  #select-preview-mode {
+    animation: none;
+  }
 }
 
 .select-mission-panel {
@@ -2081,6 +2287,10 @@
 .hud-screen.is-active .navball,
 .hud-screen.is-active .reticle,
 .hud-screen.is-active .select-header,
+.hud-screen.is-active .hangar-top,
+.hud-screen.is-active .hangar-left,
+.hud-screen.is-active .hangar-right,
+.hud-screen.is-active .hangar-bottom,
 .hud-screen.is-active .panel-top-left,
 .hud-screen.is-active .panel-top-right,
 .hud-screen.is-active .arrival-top > * {
@@ -2089,12 +2299,15 @@
 
 .hud-screen.is-active .panel-top-right,
 .hud-screen.is-active .flight-right > *,
+.hud-screen.is-active .hangar-right,
 .hud-screen.is-active .panel-bottom-right {
   animation-delay: 80ms;
 }
 
 .hud-screen.is-active .panel-bottom-left,
 .hud-screen.is-active .panel-bottom-center,
+.hud-screen.is-active .hangar-left,
+.hud-screen.is-active .hangar-bottom,
 .hud-screen.is-active .flight-left > * {
   animation-delay: 140ms;
 }
@@ -2223,6 +2436,30 @@
   #screen-select .select-layout {
     grid-template-columns: 1fr;
   }
+  #screen-hangar .hangar-layout {
+    grid-template-columns: 1fr;
+  }
+  .hangar-left,
+  .hangar-right,
+  .hangar-bottom {
+    grid-column: 1;
+  }
+  .hangar-left {
+    grid-row: 2;
+    align-self: end;
+    max-width: 360px;
+  }
+  .hangar-right {
+    grid-row: 2;
+    justify-self: end;
+    max-width: 360px;
+  }
+  .hangar-bottom {
+    grid-row: 3;
+  }
+  .hangar-reticle {
+    width: min(70vw, 520px);
+  }
   .select-map {
     min-height: 420px;
   }
@@ -2253,6 +2490,18 @@
   }
   .t-display {
     font-size: 32px;
+  }
+  .hangar-top {
+    flex-direction: column;
+    gap: 12px;
+  }
+  .hangar-left,
+  .hangar-right {
+    max-width: none;
+    justify-self: stretch;
+  }
+  .hangar-reticle {
+    width: min(86vw, 420px);
   }
 }
 

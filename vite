@@ -1,0 +1,305 @@
+
+
+  VITE v8.0.10  ready in 118 ms
+
+  ➜  Local:   http://localhost:5173/
+  ➜  Network: http://192.168.86.248:5173/
+  ➜  press h + enter to show help
+9:29:56 AM [vite] (client) page reload src/scenes/SceneManager.ts
+9:29:56 AM [vite] (client) Pre-transform error: Failed to resolve import "../h
+9:29:56 AM [vite] (client) Pre-transform error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+9:29:57 AM [vite] Internal serror: Failed to resolve import "../hud/hang
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20)
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x2)
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x3)
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x4)
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:29:57 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x5)
+9:30:03 AM [vite] (client) page reload src/hud/launchControl.ts
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+9:30:03 AM [vite] (client) Pre-transform error: Failed to resolve import "../h
+9:30:03 AM [vite] (client) Pre-transform error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20)
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x2)
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x3)
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hang
+9:30:03 AM [vite] Internal server error: Failed to resolve import "../hud/hangarHud" from "src/scenes/SceneManager.ts". Does the file exist?
+  Plugin: vite:import-analysis
+  File: /Users/rishav/Repos/space-exploration/src/scenes/SceneManager.ts:10:31
+  6  |  import { SurfaceScene } from "./SurfaceScene";
+  7  |  import { mountLaunchHud } from "../hud/launchControl";
+  8  |  import { mountHangarHud } from "../hud/hangarHud";
+     |                                  ^
+  9  |  import { mountSelectHud } from "../hud/destinationSelector";
+  10 |  import { mountFlightHud } from "../hud/flightHud";
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-e
+      at TransformPluginContext._formatLog (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30375:39)
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-explor
+      at TransformPluginContext.error (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30372:14)
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modul
+      at normalizeUrl (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27654:18)
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/
+      at async file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27717:30
+      at async Promise.all (index 7)
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/sp
+      at async TransformPluginContext.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:27685:4)
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repo
+      at async EnvironmentPluginContainer.transform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:30164:14)
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/
+      at async loadAndTransform (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24512:26)
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-explo
+      at async viteTransformMiddleware (file:///Users/rishav/Repos/space-exploration/node_modules/vite/dist/node/chunks/node.js:24306:20) (x4)
+9:30:10 AM [vite] (client) page reload src/hud/hangarHud.ts
+9:30:32 AM [vite] (client) page reload index.html
+9:30:43 AM [vite] (client) hmr update /src/styles/hud.css?direct
+9:31:04 AM [vite] (client) hmr update /src/styles/hud.css?direct (x2)
+9:31:10 AM [vite] (client) hmr update /src/styles/hud.css?direct (x3)
+9:31:15 AM [vite] (client) page reload src/hud/hangarHud.ts
+^X^X^Xxxx^C9:29:57 AM [vite] Internal serror: Failed to resolve import "../hud/hang
+9:29:57 AM [vite] Inzsh: command not found: dev[A9:29:57 AM [vite] Internal serror: Failed to resolve import "../hud/hang

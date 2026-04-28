@@ -3,9 +3,10 @@ import { SparkRenderer } from "@sparkjsdev/spark";
 
 import type { SceneSlot } from "./Scene";
 import { LaunchScene } from "./LaunchScene";
+import { HangarScene } from "./HangarScene";
 import { FlightScene } from "./FlightScene";
 import { SurfaceScene } from "./SurfaceScene";
-import { mountLaunchHud } from "../hud/launchControl";
+import { mountHangarHud, mountLaunchHud } from "../hud/launchControl";
 import { mountSelectHud } from "../hud/destinationSelector";
 import { mountFlightHud } from "../hud/flightHud";
 import { mountArrivalHud } from "../hud/arrivalHud";
@@ -16,6 +17,7 @@ import { createPostFx, type PostFx } from "../util/post";
 
 export type AppState =
   | "launch"
+  | "hangar"
   | "select"
   | "flight"
   | "arrival"
@@ -23,6 +25,7 @@ export type AppState =
 
 const SCREEN_BY_STATE: Record<AppState, string> = {
   launch: "screen-launch",
+  hangar: "screen-hangar",
   select: "screen-select",
   flight: "screen-flight",
   arrival: "screen-arrival",
@@ -32,6 +35,7 @@ const SCREEN_BY_STATE: Record<AppState, string> = {
 /** Side-nav highlight: which "screen" link should be active for each state. */
 const SIDE_NAV_BY_STATE: Record<AppState, string> = {
   launch: "launch",
+  hangar: "launch",
   select: "select",
   flight: "flight",
   arrival: "flight",
@@ -41,6 +45,7 @@ const SIDE_NAV_BY_STATE: Record<AppState, string> = {
 /** Top-bar highlight: which top-level section should be active for each state. */
 const TOP_NAV_BY_STATE: Record<AppState, string> = {
   launch: "hangar",
+  hangar: "hangar",
   select: "control",
   flight: "telemetry",
   arrival: "telemetry",
@@ -55,6 +60,7 @@ export class SceneManager {
   // Public for the debug HUD so it can identify which scene is rendering
   // without us having to thread state/slot identity through manager methods.
   readonly launch: LaunchScene;
+  readonly hangar: HangarScene;
   readonly flight: FlightScene;
   readonly surface: SurfaceScene;
 
@@ -89,6 +95,7 @@ export class SceneManager {
     this.flashEl = document.getElementById("flash");
 
     this.launch = new LaunchScene(canvas);
+    this.hangar = new HangarScene(canvas);
     this.flight = new FlightScene();
     this.surface = new SurfaceScene(this.spark, canvas);
 
@@ -118,6 +125,12 @@ export class SceneManager {
       case "launch": {
         this.swapScene(this.launch);
         this.launch.frameEarth();
+        this.post.setIntensity("default");
+        stopDrone();
+        break;
+      }
+      case "hangar": {
+        this.swapScene(this.hangar);
         this.post.setIntensity("default");
         stopDrone();
         break;
@@ -171,7 +184,7 @@ export class SceneManager {
     if (next !== "surface") {
       this.post.bypass = false;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = 1.1;
+      this.renderer.toneMappingExposure = next === "hangar" ? 0.92 : 1.1;
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     }
   }
@@ -195,8 +208,20 @@ export class SceneManager {
         onLaunch: () => {
           unlockAudio();
           playCue("launch");
-          this.setState("select");
+          this.setState("hangar");
         },
+        onHangar: () => {
+          unlockAudio();
+          playCue("click");
+          this.setState("hangar");
+        },
+      }),
+    );
+
+    this.hudCleanups.push(
+      mountHangarHud({
+        getStatus: () => this.hangar.status,
+        onContinue: () => this.setState("select"),
       }),
     );
 
@@ -307,6 +332,7 @@ export class SceneManager {
     this.renderer.setSize(w, h);
     this.post.setSize(w, h);
     this.launch.resize(w, h);
+    this.hangar.resize(w, h);
     this.flight.resize(w, h);
     this.surface.resize(w, h);
   };
@@ -317,6 +343,7 @@ export class SceneManager {
     stopDrone();
     this.hudCleanups.forEach((fn) => fn());
     this.launch.dispose();
+    this.hangar.dispose();
     this.flight.dispose();
     this.surface.dispose();
     this.post.dispose();

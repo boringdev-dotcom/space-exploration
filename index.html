@@ -170,6 +170,100 @@
           </div>
         </section>
 
+        <!-- =================== INTERACTIVE HANGAR =================== -->
+        <section id="screen-hangar" class="hud-screen">
+          <div class="hangar-layout">
+            <div class="hangar-top">
+              <div>
+                <span class="t-label">Vehicle Assembly Building</span>
+                <h1 class="t-display">Rocket Hangar</h1>
+                <p class="hangar-copy">
+                  Inspect the Artemis II SLS launch vehicle before plotting your
+                  outbound trajectory.
+                </p>
+              </div>
+              <span class="chip">
+                <span class="material-symbols-outlined chip__icon">precision_manufacturing</span>
+                <span id="hangar-model-status">LOADING ROCKET</span>
+              </span>
+            </div>
+
+            <div class="hangar-reticle" aria-hidden="true">
+              <div class="hangar-reticle__ring"></div>
+              <div class="hangar-reticle__axis hangar-reticle__axis--x"></div>
+              <div class="hangar-reticle__axis hangar-reticle__axis--y"></div>
+            </div>
+
+            <div class="hangar-left">
+              <div class="hud-card">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head">
+                  <span class="t-label">VEHICLE</span>
+                  <span class="t-mono t-meta primary-dim">SLS BLOCK 1</span>
+                </div>
+                <div class="bento bento--2">
+                  <div>
+                    <span class="t-label">HEIGHT</span>
+                    <strong class="t-mono hud-glow">98 M</strong>
+                  </div>
+                  <div>
+                    <span class="t-label">THRUST</span>
+                    <strong class="t-mono hud-glow">8.8 MN</strong>
+                  </div>
+                  <div>
+                    <span class="t-label">CREW</span>
+                    <strong class="t-mono hud-glow">ORION</strong>
+                  </div>
+                  <div>
+                    <span class="t-label">STATUS</span>
+                    <strong id="hangar-sync-readout" class="t-mono hud-glow">SYNCING</strong>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hangar-right">
+              <div class="hud-card hud-card--warn">
+                <span class="hud-bracket hud-bracket--tl"></span>
+                <span class="hud-bracket hud-bracket--tr"></span>
+                <span class="hud-bracket hud-bracket--bl"></span>
+                <span class="hud-bracket hud-bracket--br"></span>
+                <div class="hud-card__head warn">
+                  <span class="t-label warn">INSPECTION CONTROLS</span>
+                  <span class="material-symbols-outlined warn">touch_app</span>
+                </div>
+                <div class="telemetry">
+                  <div class="telemetry__row">
+                    <span class="telemetry__label">Drag</span>
+                    <span class="telemetry__value">Orbit camera</span>
+                  </div>
+                  <div class="telemetry__row">
+                    <span class="telemetry__label">Scroll</span>
+                    <span class="telemetry__value">Zoom lens</span>
+                  </div>
+                  <div class="telemetry__row">
+                    <span class="telemetry__label">Idle</span>
+                    <span class="telemetry__value">Auto rotate</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="hangar-bottom">
+              <button id="hangar-continue-btn" class="btn btn--primary" type="button" disabled>
+                <span class="material-symbols-outlined btn__icon">travel_explore</span>
+                Continue To Star Map
+                <span class="btn__shimmer"></span>
+              </button>
+            </div>
+
+            <div class="grid-overlay" aria-hidden="true"></div>
+          </div>
+        </section>
+
         <!-- =================== STAR MAP / DESTINATION SELECTOR =================== -->
         <section id="screen-select" class="hud-screen">
           <div class="select-layout">
