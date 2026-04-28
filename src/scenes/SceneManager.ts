@@ -29,6 +29,24 @@ const SCREEN_BY_STATE: Record<AppState, string> = {
   surface: "screen-surface",
 };
 
+/** Side-nav highlight: which "screen" link should be active for each state. */
+const SIDE_NAV_BY_STATE: Record<AppState, string> = {
+  launch: "launch",
+  select: "select",
+  flight: "flight",
+  arrival: "flight",
+  surface: "surface",
+};
+
+/** Top-bar highlight: which top-level section should be active for each state. */
+const TOP_NAV_BY_STATE: Record<AppState, string> = {
+  launch: "hangar",
+  select: "control",
+  flight: "telemetry",
+  arrival: "telemetry",
+  surface: "fleet",
+};
+
 export class SceneManager {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly spark: SparkRenderer;
@@ -187,7 +205,9 @@ export class SceneManager {
         onPreview: () => {},
         onSelect: (planet) => {
           this.selectedPlanet = planet;
-          playCue("click");
+        },
+        onLaunch: (planet) => {
+          this.selectedPlanet = planet;
           this.setState("flight");
         },
       }),
@@ -230,6 +250,16 @@ export class SceneManager {
     const target = SCREEN_BY_STATE[this.state];
     document.querySelectorAll<HTMLElement>(".hud-screen").forEach((el) => {
       el.classList.toggle("is-active", el.id === target);
+    });
+
+    const sideTarget = SIDE_NAV_BY_STATE[this.state];
+    document.querySelectorAll<HTMLElement>(".side-link").forEach((el) => {
+      el.classList.toggle("is-active", el.dataset.screen === sideTarget);
+    });
+
+    const topTarget = TOP_NAV_BY_STATE[this.state];
+    document.querySelectorAll<HTMLElement>(".nav-link").forEach((el) => {
+      el.classList.toggle("is-active", el.dataset.section === topTarget);
     });
   }
 
