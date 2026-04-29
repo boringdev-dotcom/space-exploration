@@ -159,9 +159,9 @@ export class CockpitRig {
     // exhaust direction visible to the chase camera).
     // Plume is sized for ship-relative units. The Artemis GLB normalises
     // to 0.5 units tall (see loadArtemis) so we keep the plume in scale.
-    this.plume = createEnginePlume({ length: 0.55, baseRadius: 0.05 });
+    this.plume = createEnginePlume({ length: 1.0, baseRadius: 0.1 });
     this.plume.group.rotation.x = -Math.PI / 2;
-    this.plume.group.position.set(0, -0.04, 0.16);
+    this.plume.group.position.set(0, -0.1, 0.4);
     this.chaseGroup.add(this.plume.group);
 
     void this.loadArtemis();
@@ -649,12 +649,12 @@ export class CockpitRig {
     if (this.artemisLoadStarted) return;
     this.artemisLoadStarted = true;
     try {
-      // Cinematic 0.5-unit height (≈ 50 km of "scale" units; visible at the
-      // chase distance without being absurdly large). Real Artemis would be
-      // ~0.001 units tall — invisible. We fudge size for readability.
-      const model = await loadNormalizedGltfModel(ARTEMIS_GLB_URL, 0.5);
+      // Cinematic 1.2-unit height — large enough to read clearly from the
+      // chase camera (which sits 2.6 back + 1.2 side + 1.8 up from the
+      // ship). Real Artemis would be ~0.001 units tall at our scale.
+      const model = await loadNormalizedGltfModel(ARTEMIS_GLB_URL, 1.2);
       model.rotation.x = -Math.PI / 2;
-      model.position.set(0, -0.06, 0);
+      model.position.set(0, -0.15, 0);
       this.artemis = model;
       this.artemis.scale.setScalar(0.001);
       this.chaseGroup.add(this.artemis);
