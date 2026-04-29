@@ -132,6 +132,22 @@ export class MissionScene implements SceneSlot {
   /** True after the player has fired the engines for the first time. */
   ignited = false;
 
+  /**
+   * Opening cinematic stage:
+   *   exterior_intro      — 1.5s framing of the rocket on the pad
+   *   ascending_external  — external camera trails the climbing rocket
+   *   blend_to_cockpit    — 1.4s crossfade external → cockpit, splat fades in
+   *   cockpit             — handed off to autopilot + head-look
+   */
+  private openingStage:
+    | "exterior_intro"
+    | "ascending_external"
+    | "blend_to_cockpit"
+    | "cockpit" = "cockpit";
+  private openingElapsed = 0;
+  private static readonly EXTERIOR_INTRO_SEC = 1.5;
+  private static readonly COCKPIT_FADE_SEC = 1.4;
+
   /** Touchdown handoff tween — camera detaches from ship for 1.2s before walking. */
   private touchdownTween: Tween | null = null;
   private touchdownFiredHandoff = false;
@@ -264,7 +280,6 @@ export class MissionScene implements SceneSlot {
     this.currentPlanet = planet;
     this.phaseController.forcePhase("liftoff");
     this.phaseController.ignited = false;
-    this.ignited = false;
     this.liftoffElapsed = 0;
     this.touchdownFiredHandoff = false;
     this.touchdownTween = null;
@@ -288,10 +303,27 @@ export class MissionScene implements SceneSlot {
     );
     this.dynamics.setPose(padPos, padQuat);
     this.dynamics.frozen = true; // unfrozen on ignition
-    this.rig.setView("cockpit", true);
+
+    // ---------- Opening cinematic ----------
+    // Auto-ignition: the player never has to press W. The mission
+    // immediately launches.
+    this.ignited = true;
+    this.phaseController.ignited = true;
+
+    // Stage 1: external view framing the rocket on the pad. We need the
+    // rig's followShip to be aware of the launch pose so the external
+    // anchor is dropped correctly relative to the rocket.
+    this.rig.followShip(this.dynamics.ship);
+    this.rig.setView("external", true);
+    // Pull the camera in close — 2.4 units back, 1.6 up — so the rocket
+    // reads as a hero against Earth, not a speck.
+    this.rig.dropExternalAnchor(2.4, 1.6);
+
+    this.openingStage = "exterior_intro";
+    this.openingElapsed = 0;
   }
 
-  /** Player presses "ignite" or W: start the canned liftoff. */
+  /** Legacy entry point — autopilot-only experience auto-ignites. */
   ignite(): void {
     if (this.ignited) return;
     this.ignited = true;
@@ -329,10 +361,21 @@ export class MissionScene implements SceneSlot {
 
     // Liftoff is canned; everything else is on the autopilot.
     if (this.phaseController.phase === "liftoff" && this.ignited) {
-      this.driveLiftoff(deltaSec);
+      // During the brief "exterior_intro" stage we hold the ship still on
+      // the pad so the camera has time to read. After that, the canned
+      // liftoff sequence takes over.
+      if (this.openingStage === "exterior_intro") {
+        // Keep ship pinned to the pad pose; no integration.
+        this.autopilotThrottle = 0;
+      } else {
+        this.driveLiftoff(deltaSec);
+      }
     } else if (this.phaseController.phase !== "liftoff") {
       this.runAutopilot(deltaSec);
     }
+
+    // Drive the opening cinematic stage machine.
+    this.advanceOpening(deltaSec);
 
     // Phase machine looks at the post-step ship pose.
     this.phaseController.update(this.dynamics.ship);
@@ -519,6 +562,69 @@ export class MissionScene implements SceneSlot {
       { pitchRate: 0, yawRate: 0, rollRate: 0, throttle, boost: 0 },
       deltaSec,
     );
+  }
+
+  /* ============================================================
+   * Opening cinematic
+   * ============================================================ */
+
+  /**
+   * Drives the four-stage opening sequence. Called every frame while the
+   * mission is active.
+   */
+  private advanceOpening(dt: number): void {
+    if (this.openingStage === "cockpit") return;
+    this.openingElapsed += dt;
+
+    switch (this.openingStage) {
+      case "exterior_intro": {
+        // Hold framing for EXTERIOR_INTRO_SEC, with a slow inward dolly
+        // (camera pulls toward the rocket) so the shot doesn't feel
+        // static while we wait.
+        const t = clamp01(
+          this.openingElapsed / MissionScene.EXTERIOR_INTRO_SEC,
+        );
+        const back = 2.4 + (2.0 - 2.4) * t;       // 2.4 → 2.0
+        const up = 1.6 + (1.4 - 1.6) * t;          // 1.6 → 1.4
+        this.rig.dropExternalAnchor(back, up);
+
+        if (this.openingElapsed >= MissionScene.EXTERIOR_INTRO_SEC) {
+          this.openingStage = "ascending_external";
+          this.openingElapsed = 0;
+          // Real ignition — the canned liftoff begins on the next frame.
+          this.liftoffElapsed = 0;
+        }
+        break;
+      }
+      case "ascending_external": {
+        // Trail the climbing rocket. As the ship rises and tilts, the
+        // anchor "back" tightens so the camera approaches the cockpit
+        // window — set up for the cockpit fade-in.
+        const climbT = clamp01(
+          this.liftoffElapsed / this.LIFTOFF_DURATION,
+        );
+        const back = 2.0 + (1.4 - 2.0) * climbT;   // 2.0 → 1.4
+        const up = 1.4 + (1.0 - 1.4) * climbT;     // 1.4 → 1.0
+        this.rig.dropExternalAnchor(back, up);
+
+        if (this.liftoffElapsed >= this.LIFTOFF_DURATION) {
+          // Time to crossfade into the cockpit. The unified view tween
+          // handles the camera move; we kick off a parallel splat fade.
+          this.openingStage = "blend_to_cockpit";
+          this.openingElapsed = 0;
+          this.rig.setView("cockpit");
+          this.rig.beginCinematicCockpitFade(MissionScene.COCKPIT_FADE_SEC);
+        }
+        break;
+      }
+      case "blend_to_cockpit": {
+        if (this.openingElapsed >= MissionScene.COCKPIT_FADE_SEC) {
+          this.openingStage = "cockpit";
+          this.openingElapsed = 0;
+        }
+        break;
+      }
+    }
   }
 
   /* ============================================================

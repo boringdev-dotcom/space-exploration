@@ -171,7 +171,8 @@ export class SceneManager {
 
   /**
    * App-wide key handler: only the view-mode toggle is registered globally,
-   * so it works whether or not pointer-lock is active.
+   * so it works whether or not pointer-lock is active. Auto-ignition makes
+   * keyboard ignition unnecessary.
    */
   private readonly onGlobalKey = (e: KeyboardEvent): void => {
     if (e.code === "KeyC" && !e.repeat) {
@@ -181,17 +182,6 @@ export class SceneManager {
         const mode = this.mission.viewMode;
         this.viewToggleListeners.forEach((cb) => cb(mode));
       }
-    }
-    // First press of W during liftoff fires ignition. e.repeat guards
-    // against holding W resetting the canned ascent timer every frame.
-    if (
-      e.code === "KeyW" &&
-      !e.repeat &&
-      this.state === "mission" &&
-      !this.mission.ignited
-    ) {
-      this.mission.ignite();
-      playCue("launch");
     }
   };
 
@@ -269,14 +259,20 @@ export class SceneManager {
         this.swapScene(this.mission);
         this.mission.beginMission(this.selectedPlanet);
         // Mission starts in calm liftoff feel — bloom ramps up via phase
-        // biases when we hit cruise. Going straight to "warp" at takeoff
-        // blew out Earth's lit side because the GLB albedo + atmosphere
-        // shell blew the bloom threshold instantly.
+        // biases when we hit cruise.
         this.post.setIntensity("default");
         playCue("launch");
         startDrone();
         this.flightInput.reset();
         this.flightInput.start();
+        // Try to auto-engage pointer lock on the back of the launch
+        // button gesture. If the browser denies (no recent gesture), the
+        // existing click-on-canvas path remains as a fallback.
+        try {
+          this.flightInput.requestPointerLock();
+        } catch {
+          /* swallow — pointer lock not available */
+        }
         break;
       }
       case "surface": {
