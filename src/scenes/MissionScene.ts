@@ -19,6 +19,7 @@ import {
   type Earth,
 } from "./Earth";
 import { createStarfield } from "../util/starfield";
+import { createSpaceDust, type SpaceDust } from "../util/spaceDust";
 import { COCKPITS } from "../data/cockpits";
 import type { Planet } from "../data/planets";
 import {
@@ -96,6 +97,7 @@ export class MissionScene implements SceneSlot {
   private readonly spark: SparkRenderer | null;
   private earth: Earth;
   private starfield: THREE.Points;
+  private spaceDust: SpaceDust;
   private sun: THREE.DirectionalLight;
 
   private destinationGroup = new THREE.Group();
@@ -190,6 +192,17 @@ export class MissionScene implements SceneSlot {
       size: 4.5,
     });
     this.scene.add(this.starfield);
+
+    // Streaming space dust — close-range particles that sweep past the
+    // cockpit window so the player visually feels the ship moving even
+    // when the destination is still small ahead. Cheap; ~600 particles.
+    this.spaceDust = createSpaceDust({
+      count: 600,
+      radius: 6,
+      length: 120,
+      size: 0.06,
+    });
+    this.scene.add(this.spaceDust.points);
 
     // Destination placeholder sphere — a neutral grey ball that gets
     // recoloured + replaced by the planet GLB when we enter approach phase.
@@ -359,6 +372,20 @@ export class MissionScene implements SceneSlot {
     this.starfield.position.copy(this.camera.position);
     this.starfield.rotation.y += deltaSec * 0.001;
 
+    // Streaming dust: respawns particles ahead of the ship as they sweep
+    // past, so the player feels the ship moving. Hide once landed (ship
+    // velocity is zero so respawning is wasted work).
+    const phase = this.phaseController.phase;
+    const dustVisible = phase !== "landed";
+    this.spaceDust.points.visible = dustVisible;
+    if (dustVisible) {
+      this.spaceDust.update(
+        this.dynamics.ship.position,
+        this.dynamics.ship.forward,
+        deltaSec,
+      );
+    }
+
     // Liftoff is canned; everything else is on the autopilot.
     if (this.phaseController.phase === "liftoff" && this.ignited) {
       // During the brief "exterior_intro" stage we hold the ship still on
@@ -446,6 +473,7 @@ export class MissionScene implements SceneSlot {
   dispose(): void {
     this.rig.dispose();
     this.earth.dispose();
+    this.spaceDust.dispose();
     this.clearDestinationModel();
     this.clearSurfaceSplat();
     this.scene.traverse((obj) => {
