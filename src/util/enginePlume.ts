@@ -132,14 +132,15 @@ export function createEnginePlume(opts: {
   group.add(core);
 
   // Outer haze — billboard, radial gradient. Stays facing the camera.
-  const hazeGeom = new THREE.CircleGeometry(baseRadius * 3.6, 32);
+  // Kept modest so the chase camera doesn't bloom-out the entire frame.
+  const hazeGeom = new THREE.CircleGeometry(baseRadius * 2.4, 32);
   const hazeMat = new THREE.ShaderMaterial({
     transparent: true,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     uniforms: {
       uColor: { value: new THREE.Color(0x7adcff) },
-      uIntensity: { value: 0.6 },
+      uIntensity: { value: 0.32 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;

@@ -85,6 +85,15 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
     lines.push(`canvas:       ${window.innerWidth}×${window.innerHeight}  dpr ${window.devicePixelRatio}`);
 
     if (active === manager.flight) {
+      const rig = manager.flight.rig.getDebugSnapshot();
+      lines.push("");
+      lines.push("--- cockpit ---");
+      lines.push(`view:         ${rig.mode}  (blend ${fmt(rig.blend, 2)})`);
+      lines.push(`artemisGlb:   ${rig.artemisReady ? "ready" : "loading"}`);
+      lines.push(`tint hint:    setCockpitTint(r,g,b) — try (0.4,0.42,0.48)`);
+    }
+
+    if (active === manager.flight) {
       const projected = flight.screen;
       lines.push("");
       lines.push("--- alignment ---");

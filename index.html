@@ -333,223 +333,45 @@
 
         <!-- =================== IN-FLIGHT NAVIGATION =================== -->
         <section id="screen-flight" class="hud-screen">
-          <div class="flight-grid">
-            <!-- Left column: Velocity + Altitude blocks -->
-            <div class="flight-left">
-              <div class="hud-card">
-                <span class="hud-bracket hud-bracket--tl"></span>
-                <span class="hud-bracket hud-bracket--tr"></span>
-                <span class="hud-bracket hud-bracket--bl"></span>
-                <span class="hud-bracket hud-bracket--br"></span>
-                <div class="hud-card__head">
-                  <span class="t-label">VELOCITY [REL]</span>
-                  <span class="t-mono t-meta primary-dim">KM/S</span>
-                </div>
-                <div id="flight-velocity" class="readout readout--xl hud-glow">07.824</div>
-                <div class="seg-bar" id="flight-velocity-bar" data-fill="4">
-                  <span></span><span></span><span></span><span></span>
-                  <span></span><span></span><span></span>
-                </div>
-                <div class="seg-bar__legend">
-                  <span>0</span>
-                  <span>ORBITAL V.</span>
-                  <span>ESCAPE V.</span>
-                </div>
-              </div>
+          <!-- View-mode pill (top-center) -->
+          <div class="view-mode-pill" id="flight-view-pill">
+            <span class="view-mode-pill__chip" id="flight-view-mode-label">COCKPIT VIEW</span>
+            <span class="view-mode-pill__hint">[ <kbd>C</kbd> ]</span>
+          </div>
 
-              <div class="hud-card">
-                <span class="hud-bracket hud-bracket--tl"></span>
-                <span class="hud-bracket hud-bracket--tr"></span>
-                <span class="hud-bracket hud-bracket--bl"></span>
-                <span class="hud-bracket hud-bracket--br"></span>
-                <div class="hud-card__head">
-                  <span class="t-label">DISTANCE</span>
-                  <span class="t-mono t-meta primary-dim">REMAINING</span>
-                </div>
-                <div class="readout readout--lg hud-glow">
-                  <span id="flight-distance">— km</span>
-                </div>
-                <div class="travel-progress">
-                  <div class="travel-progress__bar">
-                    <div class="travel-progress__fill" id="flight-progress"></div>
-                  </div>
-                  <div class="travel-progress__meta">
-                    <span class="t-mono t-meta">VECTOR DELTA</span>
-                    <span class="t-mono t-meta primary-dim">SUBLIGHT · ENGAGED</span>
-                  </div>
-                </div>
-              </div>
+          <!-- Mission phase strip (top, beneath the view pill) -->
+          <div class="phase-strip" id="phase-strip" data-phase="liftoff">
+            <span class="phase-strip__chip" data-phase="liftoff">LIFTOFF</span>
+            <span class="phase-strip__sep" aria-hidden="true">›</span>
+            <span class="phase-strip__chip" data-phase="cruise">CRUISE</span>
+            <span class="phase-strip__sep" aria-hidden="true">›</span>
+            <span class="phase-strip__chip" data-phase="approach">APPROACH</span>
+            <span class="phase-strip__sep" aria-hidden="true">›</span>
+            <span class="phase-strip__chip" data-phase="touchdown">TOUCHDOWN</span>
+          </div>
+
+          <!-- Minimal flight readout (top-left). -->
+          <div class="flight-readout" id="flight-readout">
+            <div class="flight-readout__row">
+              <span class="t-label">DEST</span>
+              <span class="flight-readout__sep">·</span>
+              <span id="flight-target-name" class="t-mono flight-readout__dest">—</span>
             </div>
-
-            <!-- Center: Navball / reticle -->
-            <div class="flight-center">
-              <div class="navball" aria-hidden="true">
-                <div class="navball__heading-tape">
-                  <span>075</span><span>080</span><span class="is-cur">085</span><span>090</span><span>095</span>
-                  <span class="navball__heading-pointer"></span>
-                </div>
-                <div class="navball__outer"></div>
-                <div class="navball__inner"></div>
-                <div class="navball__pitch navball__pitch--up-far"></div>
-                <div class="navball__pitch navball__pitch--up-near"></div>
-                <div class="navball__pitch navball__pitch--down-near"></div>
-                <div class="navball__pitch navball__pitch--down-far"></div>
-                <div class="navball__prograde">
-                  <span class="navball__prograde-dot"></span>
-                  <span class="navball__prograde-wing navball__prograde-wing--l"></span>
-                  <span class="navball__prograde-wing navball__prograde-wing--r"></span>
-                  <span class="navball__prograde-wing navball__prograde-wing--t"></span>
-                </div>
-              </div>
-              <div class="flight-target">
-                <span class="t-label">EN ROUTE TO</span>
-                <strong id="flight-target-name">—</strong>
-              </div>
+            <div class="flight-readout__row">
+              <span class="t-label">VELOCITY</span>
+              <span class="flight-readout__sep">·</span>
+              <span class="t-mono"><span id="flight-velocity" class="hud-glow">000.000</span> <span class="t-meta primary-dim">km/s</span></span>
             </div>
-
-            <!-- Right column: G-Force + Fuel -->
-            <div class="flight-right">
-              <div class="hud-card">
-                <span class="hud-bracket hud-bracket--tl"></span>
-                <span class="hud-bracket hud-bracket--tr"></span>
-                <span class="hud-bracket hud-bracket--bl"></span>
-                <span class="hud-bracket hud-bracket--br"></span>
-                <div class="hud-card__head">
-                  <span class="t-label">ACCELERATION</span>
-                  <span class="t-mono t-meta primary-dim">G-FRC</span>
-                </div>
-                <div class="g-force">
-                  <div class="readout readout--lg hud-glow">1.02</div>
-                  <div class="g-force__gauge">
-                    <svg viewBox="0 0 36 36">
-                      <path
-                        class="g-force__track"
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      ></path>
-                      <path
-                        class="g-force__fill"
-                        d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                      ></path>
-                    </svg>
-                  </div>
-                </div>
-              </div>
-
-              <div class="hud-card hud-card--warn">
-                <span class="hud-bracket hud-bracket--tl"></span>
-                <span class="hud-bracket hud-bracket--tr"></span>
-                <span class="hud-bracket hud-bracket--bl"></span>
-                <span class="hud-bracket hud-bracket--br"></span>
-                <div class="hud-card__head warn">
-                  <span class="t-label warn">
-                    <span class="material-symbols-outlined warn">timer</span>
-                    ETA
-                  </span>
-                  <span id="flight-eta" class="t-mono t-data hud-glow secondary">—</span>
-                </div>
-                <div class="hud-card__head" style="margin-top: 12px">
-                  <span class="t-label">HEADING</span>
-                  <span id="flight-heading" class="t-mono t-data hud-glow">000°</span>
-                </div>
-                <div class="compass" aria-hidden="true">
-                  <div class="compass__needle" id="flight-needle"></div>
-                </div>
-              </div>
+            <div class="flight-readout__row">
+              <span class="t-label" id="altimeter-context">EARTH AGL</span>
+              <span class="flight-readout__sep">·</span>
+              <span class="t-mono hud-glow" id="altimeter-value">— km</span>
             </div>
-
-            <!-- Bottom skip -->
-            <div class="flight-skip">
-              <button id="flight-skip-btn" class="btn btn--ghost" type="button">
-                Skip Approach
-                <span class="material-symbols-outlined btn__icon">fast_forward</span>
-              </button>
+            <div class="flight-readout__row">
+              <span class="t-label">RANGE</span>
+              <span class="flight-readout__sep">·</span>
+              <span class="t-mono hud-glow" id="flight-distance">— km</span>
             </div>
-
-            <!-- View-mode pill (top-center) -->
-            <div class="view-mode-pill" id="flight-view-pill">
-              <span class="view-mode-pill__chip" id="flight-view-mode-label">COCKPIT VIEW</span>
-              <span class="view-mode-pill__hint">[ <kbd>C</kbd> ]</span>
-            </div>
-
-            <!-- Cockpit dashboard — only visible in cockpit mode. -->
-            <div class="cockpit-dash" id="cockpit-dash" data-mode="cockpit">
-              <div class="cockpit-dash__panel cockpit-dash__panel--left">
-                <span class="hud-bracket hud-bracket--tl"></span>
-                <span class="hud-bracket hud-bracket--tr"></span>
-                <span class="hud-bracket hud-bracket--bl"></span>
-                <span class="hud-bracket hud-bracket--br"></span>
-                <div class="cockpit-dash__head">
-                  <span class="t-label">THROTTLE</span>
-                  <span class="t-mono t-meta primary-dim" id="cockpit-throttle-val">100%</span>
-                </div>
-                <div class="cockpit-throttle">
-                  <div class="cockpit-throttle__track">
-                    <div class="cockpit-throttle__cruise" aria-hidden="true"></div>
-                    <div class="cockpit-throttle__fill" id="cockpit-throttle-fill"></div>
-                    <div class="cockpit-throttle__needle" id="cockpit-throttle-needle"></div>
-                  </div>
-                  <div class="cockpit-throttle__legend">
-                    <span>0</span><span>1.0</span><span>2.0</span>
-                  </div>
-                </div>
-                <div class="cockpit-dash__hint t-meta primary-dim">[ W / S ]</div>
-              </div>
-
-              <div class="cockpit-dash__panel cockpit-dash__panel--center">
-                <div class="cockpit-attitude" aria-hidden="true">
-                  <svg viewBox="-50 -50 100 100" class="cockpit-attitude__svg">
-                    <defs>
-                      <clipPath id="cockpit-attitude-clip">
-                        <circle r="48" cx="0" cy="0" />
-                      </clipPath>
-                    </defs>
-                    <g class="cockpit-attitude__horizon" id="cockpit-attitude-horizon" clip-path="url(#cockpit-attitude-clip)">
-                      <rect x="-200" y="-200" width="400" height="200" class="cockpit-attitude__sky" />
-                      <rect x="-200" y="0" width="400" height="200" class="cockpit-attitude__ground" />
-                      <line x1="-100" y1="-12" x2="100" y2="-12" class="cockpit-attitude__pitch-line" />
-                      <line x1="-60" y1="-24" x2="60" y2="-24" class="cockpit-attitude__pitch-line" />
-                      <line x1="-100" y1="12" x2="100" y2="12" class="cockpit-attitude__pitch-line" />
-                      <line x1="-60" y1="24" x2="60" y2="24" class="cockpit-attitude__pitch-line" />
-                      <line x1="-110" y1="0" x2="110" y2="0" class="cockpit-attitude__horizon-line" />
-                    </g>
-                    <circle r="48" cx="0" cy="0" class="cockpit-attitude__bezel" />
-                    <line x1="-22" y1="0" x2="-8" y2="0" class="cockpit-attitude__reticle" />
-                    <line x1="22" y1="0" x2="8" y2="0" class="cockpit-attitude__reticle" />
-                    <circle r="2" cx="0" cy="0" class="cockpit-attitude__reticle-dot" />
-                  </svg>
-                  <span class="cockpit-attitude__label t-label">ATTITUDE</span>
-                </div>
-              </div>
-
-              <div class="cockpit-dash__panel cockpit-dash__panel--right">
-                <span class="hud-bracket hud-bracket--tl"></span>
-                <span class="hud-bracket hud-bracket--tr"></span>
-                <span class="hud-bracket hud-bracket--bl"></span>
-                <span class="hud-bracket hud-bracket--br"></span>
-                <div class="cockpit-dash__head">
-                  <span class="t-label">BOOST</span>
-                  <span class="t-mono t-meta primary-dim" id="cockpit-boost-val">100%</span>
-                </div>
-                <div class="cockpit-boost">
-                  <svg viewBox="0 0 80 80" class="cockpit-boost__arc">
-                    <path
-                      class="cockpit-boost__track"
-                      d="M 12 60 A 32 32 0 1 1 68 60"
-                      fill="none"
-                    />
-                    <path
-                      class="cockpit-boost__fill"
-                      id="cockpit-boost-fill"
-                      d="M 12 60 A 32 32 0 1 1 68 60"
-                      fill="none"
-                    />
-                  </svg>
-                </div>
-                <div class="cockpit-dash__hint t-meta primary-dim">[ SPACE ]</div>
-              </div>
-            </div>
-
-            <div class="grid-overlay" aria-hidden="true"></div>
           </div>
         </section>
 
