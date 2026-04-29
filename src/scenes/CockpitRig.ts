@@ -34,13 +34,16 @@ const COCKPIT_OFFSET = new THREE.Vector3(0, 0.0, 0.0);
 // "anti-forward" component (CHASE_BACK) and a world-up vertical component
 // (CHASE_UP_WORLD) so the camera always sits ABOVE the horizon — at the
 // launch pad, where the rocket's nose points world-up, a pure ship-local
-// offset would push the camera below ground.
-const CHASE_BACK = 1.4;
-const CHASE_UP_WORLD = 1.4;
+// offset would push the camera below ground. The chase camera is also
+// biased SIDEWAYS so the engine plume doesn't fire directly at the lens
+// (which used to blow out the bloom and wash the frame to white).
+const CHASE_BACK = 2.6;
+const CHASE_UP_WORLD = 1.8;
+const CHASE_SIDE = 1.2;
 const EXTERNAL_ANCHOR_BACK = 2.4;
 const EXTERNAL_ANCHOR_UP_WORLD = 2.0;
 /** Seconds of no mouse motion before the external cam re-anchors behind. */
-const EXTERNAL_RECENTER_SECONDS = 6;
+const EXTERNAL_RECENTER_SECONDS = 8;
 
 /** FOV per mode — chase is slightly narrower for a more "filmic" look. */
 const COCKPIT_FOV = 72;
@@ -472,7 +475,9 @@ export class CockpitRig {
 
     if (mode === "chase") {
       if (ship) {
-        // Horizontal anti-forward + world-up. Always above the horizon.
+        // Horizontal anti-forward + world-up + side bias. Always above
+        // the horizon and offset to the side so the engine plume doesn't
+        // fire directly into the lens.
         const fwd = _scratchFwd
           .set(0, 0, -1)
           .applyQuaternion(ship.quaternion);
@@ -486,10 +491,20 @@ export class CockpitRig {
           .copy(horizFwd)
           .negate()
           .multiplyScalar(CHASE_BACK);
+        // Lateral offset perpendicular to forward (left side of the
+        // rocket from the camera's view). Pure sideways = back × world-up
+        // normalized then scaled.
+        const sideAxis = _scratchRight
+          .crossVectors(_worldUp, horizFwd)
+          .normalize();
+        const sideOffset = _scratchUp
+          .copy(sideAxis)
+          .multiplyScalar(CHASE_SIDE);
         // Mouse head-look orbits the back vector around world up (yaw)
         // and tips it up/down (pitch).
         back.applyAxisAngle(_worldUp, this.headLookYaw);
-        const right = _scratchRight
+        sideOffset.applyAxisAngle(_worldUp, this.headLookYaw);
+        const right = _scratchExternalPitchAxis
           .crossVectors(back, _worldUp)
           .normalize();
         if (right.lengthSq() > 0) {
@@ -498,7 +513,8 @@ export class CockpitRig {
         outPos
           .copy(ship.position)
           .add(back)
-          .add(_scratchUp.set(0, 1, 0).multiplyScalar(CHASE_UP_WORLD));
+          .add(sideOffset)
+          .add(_scratchExternalOffset.set(0, CHASE_UP_WORLD, 0));
         // Look at the ship centre with a slight downward bias.
         outLook
           .set(0, -0.4, 0)
