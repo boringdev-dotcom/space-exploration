@@ -44,7 +44,7 @@ export const COCKPITS: Cockpit[] = [
     // Mocked default — points at a public Spark sample so the rig renders
     // end-to-end before the real Marble world is generated. Will be
     // overwritten by `worlds:generate -- --table cockpits`.
-    splatUrl: "https://cdn.marble.worldlabs.ai/524e6c70-2a1f-4b31-a006-e97a283766ab/c97cc273-8483-4826-8805-1740c09bc05e_ceramic.spz",
+    splatUrl: "https://cdn.marble.worldlabs.ai/bb6a05a3-2735-4367-9a19-722ab4153436/5b0a01b4-0727-41bb-9c15-6f4119eb8cb5_ceramic.spz",
     // Marble's scan origin sits at (0, 0, 0) looking down -Z (the windshield
     // direction), which is exactly where our cockpit camera lives. The
     // splat is parented to the camera so it follows the player's head.
