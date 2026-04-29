@@ -83,16 +83,34 @@ export class CockpitRig {
 
   private plume: EnginePlume;
 
-  /** Current/target view mode. */
+  /** Current view mode (post-transition target). */
   private _viewMode: ViewMode = "cockpit";
-  /** 0 = cockpit, 1 = chase. Smoothly interpolates during a toggle. */
+  /** Mode being transitioned away from. Equals `_viewMode` when settled. */
+  private _prevViewMode: ViewMode = "cockpit";
+  /** 0 = at prev profile, 1 = at current profile. Drives the unified
+   *  position+lookAt+FOV crossfade across all three view modes. */
+  private viewT = 1;
+  /** Length of the crossfade in seconds. */
+  private static readonly VIEW_TRANSITION_SEC = 1.2;
+  /** Legacy 0..1 chase-blend retained for callers that read it; equals
+   *  the crossfade-weighted weight of `chase` against `cockpit`. */
   private viewBlend = 0;
-  private viewTween: Tween;
+
+  /** Cinematic cockpit fade-in. While < 1, the cockpit splat opacity is
+   *  multiplied by this; used by the opening exterior → cockpit handoff. */
+  private cockpitFadeIn = 1;
+  private cockpitFadeTween: Tween | null = null;
+  /** Target cockpit splat opacity (set by setCockpitSplat). */
+  private cockpitTargetOpacity = 1;
 
   /** Shake/idle scratch vectors (avoid per-frame allocation). */
-  private readonly _scratchOffset = new THREE.Vector3();
   private readonly _scratchLookAt = new THREE.Vector3();
   private readonly _idleSwayPos = new THREE.Vector3();
+  /** Profile blend scratch — never mutated outside {@link update}. */
+  private readonly _scratchPrevPos = new THREE.Vector3();
+  private readonly _scratchPrevLook = new THREE.Vector3();
+  private readonly _scratchCurPos = new THREE.Vector3();
+  private readonly _scratchCurLook = new THREE.Vector3();
 
   private readonly camera: THREE.PerspectiveCamera;
 
@@ -120,8 +138,6 @@ export class CockpitRig {
    * world-origin behaviour used by the cinematic FlightScene.
    */
   private shipState: ShipState | null = null;
-  private readonly _scratchShipOffset = new THREE.Vector3();
-  private readonly _scratchShipLook = new THREE.Vector3();
 
   constructor(opts: CockpitRigOpts) {
     this.camera = opts.camera;
@@ -144,10 +160,6 @@ export class CockpitRig {
     this.plume.group.rotation.x = -Math.PI / 2;
     this.plume.group.position.set(0, -0.04, 0.16);
     this.chaseGroup.add(this.plume.group);
-
-    this.viewTween = new Tween(0.9, easeInOutCubic, (eased) => {
-      this.viewBlend = this._viewMode === "chase" ? eased : 1 - eased;
-    });
 
     void this.loadArtemis();
   }
@@ -179,27 +191,26 @@ export class CockpitRig {
   }
 
   setView(mode: ViewMode, immediate = false): void {
-    if (mode === this._viewMode && !immediate) return;
-    const prev = this._viewMode;
-    this._viewMode = mode;
+    if (mode === this._viewMode && !immediate && this.viewT >= 1) return;
 
     if (mode === "external") {
       this.dropExternalAnchor();
     }
 
-    // Cockpit ↔ chase uses the existing 0..1 blend tween. Transitions to/
-    // from external are hard cuts (with FOV easing handled in update).
-    if (mode === "external" || prev === "external") {
-      this.viewTween.cancel();
-      this.viewBlend = mode === "external" || mode === "chase" ? 1 : 0;
-      return;
-    }
-
+    // Set up a unified crossfade: the rig holds two ViewModes (`prev` and
+    // `current`) and a 0..1 blend `viewT` that interpolates everything
+    // between them — position, look target, FOV. This is used identically
+    // for cockpit ↔ chase, cockpit ↔ external, chase ↔ external.
     if (immediate) {
-      this.viewTween.cancel();
-      this.viewBlend = mode === "chase" ? 1 : 0;
+      this._prevViewMode = mode;
+      this._viewMode = mode;
+      this.viewT = 1;
     } else {
-      this.viewTween.start();
+      // If we're already mid-transition, snap "prev" to whatever we're
+      // currently rendering so the new transition starts smoothly.
+      this._prevViewMode = this._viewMode;
+      this._viewMode = mode;
+      this.viewT = 0;
     }
   }
 
@@ -237,12 +248,16 @@ export class CockpitRig {
   }
 
   /**
-   * Drop a world-space anchor 18 units back-and-up from the ship's current
-   * pose; used by external view to "let the rocket fly past". Re-called
-   * automatically when the player has been idle for a while.
+   * Drop a world-space anchor back-and-up from the ship's current pose;
+   * used by external view to "let the rocket fly past". Re-called
+   * automatically when the player has been idle for a while. `back` and
+   * `up` override the default offsets — used by the opening cinematic to
+   * pull the camera in close to the rocket on the launch pad.
    */
-  private dropExternalAnchor(): void {
+  dropExternalAnchor(back?: number, up?: number): void {
     if (!this.shipState) return;
+    const backDist = back ?? EXTERNAL_ANCHOR_BACK;
+    const upDist = up ?? EXTERNAL_ANCHOR_UP_WORLD;
     // Horizontal anti-forward + world up. Always above the horizon, behind
     // the ship's horizontal flight direction. At the launch pad with nose
     // straight up we fall back to a stable side direction.
@@ -251,15 +266,38 @@ export class CockpitRig {
     );
     const horizFwd = new THREE.Vector3(fwd.x, 0, fwd.z);
     if (horizFwd.lengthSq() < 0.001) {
+      // Ship pointing straight up (launch pad) — pick a stable side
+      // direction so the camera is always to the SIDE of the rocket, not
+      // above or below it.
       horizFwd.set(0, 0, 1);
     } else {
       horizFwd.normalize();
     }
-    const back = horizFwd.negate().multiplyScalar(EXTERNAL_ANCHOR_BACK);
-    const worldUp = new THREE.Vector3(0, 1, 0).multiplyScalar(
-      EXTERNAL_ANCHOR_UP_WORLD,
-    );
-    this.externalAnchor.copy(this.shipState.position).add(back).add(worldUp);
+    const backVec = horizFwd.negate().multiplyScalar(backDist);
+    const worldUp = new THREE.Vector3(0, 1, 0).multiplyScalar(upDist);
+    this.externalAnchor.copy(this.shipState.position).add(backVec).add(worldUp);
+  }
+
+  /**
+   * Trigger a cinematic 0 → 1 cockpit splat fade-in, used by the opening
+   * exterior-to-cockpit handoff. While the tween runs, the cockpit splat's
+   * opacity is multiplied by `cockpitFadeIn`.
+   */
+  beginCinematicCockpitFade(durationSec = 1.4): void {
+    this.cockpitFadeIn = 0;
+    this.cockpitFadeTween?.cancel();
+    this.cockpitFadeTween = new Tween(durationSec, easeInOutCubic, (eased) => {
+      this.cockpitFadeIn = eased;
+      if (this.cockpitSplat) {
+        this.cockpitSplat.opacity = this.cockpitTargetOpacity * this.cockpitFadeIn;
+      }
+    }, () => {
+      this.cockpitFadeIn = 1;
+      if (this.cockpitSplat) {
+        this.cockpitSplat.opacity = this.cockpitTargetOpacity;
+      }
+    });
+    this.cockpitFadeTween.start();
   }
 
   /**
@@ -267,26 +305,31 @@ export class CockpitRig {
    * `elapsed` are seconds.
    */
   update(dt: number, elapsed: number): void {
-    this.viewTween.update(dt);
-
-    // Smoothly drive the blend even when the tween isn't active so calls to
-    // setView({immediate: true}) don't visibly jitter.
-    const targetBlend = this._viewMode === "chase" ? 1 : 0;
-    if (!this.viewTween.isActive) {
-      this.viewBlend = damp(this.viewBlend, targetBlend, 8, dt);
+    // Advance the unified mode crossfade. `viewT` runs 0 → 1 over
+    // VIEW_TRANSITION_SEC; once settled we stop incrementing so the rig
+    // sits exactly on the current profile.
+    if (this.viewT < 1) {
+      this.viewT = Math.min(
+        1,
+        this.viewT + dt / CockpitRig.VIEW_TRANSITION_SEC,
+      );
+      if (this.viewT >= 1) this._prevViewMode = this._viewMode;
     }
+    const tBlend = easeInOutCubic(this.viewT);
 
-    const t = this.viewBlend;
-    const easedT = easeInOutCubic(t);
+    // Cinematic cockpit fade tween (used by the opening sequence).
+    this.cockpitFadeTween?.update(dt);
 
-    // Camera offset: lerp between cockpit (origin) and chase. The chase
-    // offset is built fresh below (split into ship-local back + world-up)
-    // so we just zero out _scratchOffset here for cockpit.
-    this._scratchOffset.copy(COCKPIT_OFFSET);
+    // Idle hand-held sway. Read from the mid-blend so the amplitude
+    // matches the visual mode the camera is closer to.
+    const chaseWeight = this.viewModeWeight("chase", tBlend);
+    const externalWeight = this.viewModeWeight("external", tBlend);
+    const cockpitWeight = this.viewModeWeight("cockpit", tBlend);
 
-    // Idle hand-held sway. Scaled DOWN inside cockpit (more grounded) and
-    // UP in chase (more cinematic parallax).
-    const swayAmp = 0.012 + 0.04 * easedT;
+    // Legacy 0..1 chase blend retained for callers reading the field.
+    this.viewBlend = chaseWeight + externalWeight;
+
+    const swayAmp = 0.012 + 0.03 * chaseWeight + 0.05 * externalWeight;
     this._idleSwayPos.set(
       noise1D(elapsed * 0.6, 1.7) * swayAmp,
       noise1D(elapsed * 0.5, 4.2) * swayAmp * 0.7,
@@ -304,167 +347,73 @@ export class CockpitRig {
     } else {
       this.headLookQuietSec = 0;
     }
+    if (
+      this._viewMode === "external" &&
+      this.headLookQuietSec > EXTERNAL_RECENTER_SECONDS
+    ) {
+      this.dropExternalAnchor();
+      this.headLookQuietSec = 0;
+    }
 
-    // Compose camera world position. When following a ship, all offsets are
-    // rotated into the ship's local frame so the rig moves *with* the
-    // rocket; when not following (legacy FlightScene), we fall back to
-    // world-axis interpretation around the rig root.
+    // Build the camera world transform by sampling each mode's profile and
+    // blending. When `viewT === 1`, the result is purely the current mode.
     const ship = this.shipState;
-    if (this._viewMode === "external" && ship) {
-      // External: camera holds a world-space anchor near the ship; mouse
-      // orbits the camera AROUND the ship (anchor relative to ship is
-      // rotated by head-look). Look target = ship position so the rocket
-      // stays framed regardless of orbit angle.
-      if (this.headLookQuietSec > EXTERNAL_RECENTER_SECONDS) {
-        this.dropExternalAnchor();
-        this.headLookQuietSec = 0;
-      }
-      // Anchor offset relative to ship (world-space vector).
-      this._scratchShipOffset
-        .copy(this.externalAnchor)
-        .sub(ship.position);
-      // Mouse-driven orbital rotation of the offset around world Y for yaw
-      // and the offset's local right-axis for pitch.
-      _orbitYawAxisExt.set(0, 1, 0);
-      this._scratchShipOffset.applyAxisAngle(
-        _orbitYawAxisExt,
-        this.headLookYaw,
-      );
-      _orbitPitchAxisExt
-        .crossVectors(_orbitYawAxisExt, this._scratchShipOffset)
-        .normalize();
-      this._scratchShipOffset.applyAxisAngle(
-        _orbitPitchAxisExt,
-        this.headLookPitch,
-      );
+    const prevPos = this._scratchPrevPos;
+    const prevLook = this._scratchPrevLook;
+    const curPos = this._scratchCurPos;
+    const curLook = this._scratchCurLook;
 
-      this.camera.position
-        .copy(ship.position)
-        .add(this._scratchShipOffset)
-        .add(this._idleSwayPos)
-        .add(this.extraShakeOffset);
-      this.camera.lookAt(ship.position);
+    this.computeProfile(this._prevViewMode, ship, prevPos, prevLook);
+    this.computeProfile(this._viewMode, ship, curPos, curLook);
 
-      const targetFov = EXTERNAL_FOV;
-      this.camera.fov = damp(this.camera.fov, targetFov, 6, dt);
-      this.camera.updateProjectionMatrix();
+    this.camera.position
+      .copy(prevPos)
+      .lerp(curPos, tBlend)
+      .add(this._idleSwayPos)
+      .add(this.extraShakeOffset);
 
-      // Show chase rocket + plume; hide cockpit splat.
-      this.chaseGroup.visible = true;
-      this.cockpitGroup.visible = false;
-      if (this.artemis) {
-        const s = damp(this.artemis.scale.x, 1, 7, dt);
-        this.artemis.scale.setScalar(s);
-      }
-      this.plume.group.visible = this.throttle > 0.05;
-      if (this.plume.group.visible) {
-        this.plume.setState(this.throttle, this.boost);
-        this.plume.update(dt, elapsed);
-      }
-      return;
-    }
+    this._scratchLookAt.copy(prevLook).lerp(curLook, tBlend);
+    this.camera.lookAt(this._scratchLookAt);
 
-    if (ship) {
-      // Chase mode: build a "third-person flight sim" offset — horizontal
-      // anti-forward (projection of ship-forward onto the horizontal
-      // plane, negated) + world-up vertical bias. This way the camera
-      // always sits *above* the horizon and *behind* the ship's flight
-      // direction, regardless of whether the rocket is vertical (launch
-      // pad) or horizontal (cruise).
-      this._scratchShipOffset.set(0, 0, 0);
-      if (easedT > 0.001) {
-        const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(
-          ship.quaternion,
-        );
-        // Project forward to horizontal plane (zero out Y) and normalize.
-        const horizFwd = new THREE.Vector3(fwd.x, 0, fwd.z);
-        if (horizFwd.lengthSq() < 0.001) {
-          // Ship pointing straight up/down — pick a stable side direction.
-          horizFwd.set(0, 0, 1);
-        } else {
-          horizFwd.normalize();
-        }
-        // Mouse head-look orbits the back vector around world up (yaw)
-        // and tips it up/down (pitch) — "move around the rocket".
-        _orbitYawAxis.set(0, 1, 0);
-        const back = horizFwd.negate().multiplyScalar(CHASE_BACK);
-        back.applyAxisAngle(_orbitYawAxis, this.headLookYaw);
-        const right = new THREE.Vector3()
-          .crossVectors(back, _orbitYawAxis)
-          .normalize();
-        if (right.lengthSq() > 0) {
-          back.applyAxisAngle(right, this.headLookPitch);
-        }
-        const worldUp = new THREE.Vector3(0, 1, 0).multiplyScalar(
-          CHASE_UP_WORLD,
-        );
-        this._scratchShipOffset.copy(back).add(worldUp).multiplyScalar(easedT);
-      }
-
-      this.camera.position
-        .copy(ship.position)
-        .add(this._scratchShipOffset)
-        .add(this._idleSwayPos)
-        .add(this.extraShakeOffset);
-
-      // Forward look target: project a point ahead of the ship in its local
-      // -Z direction; chase view biases slightly downward and tracks the
-      // ship centre regardless of orbital angle.
-      const lookCockpit = this._scratchLookAt.set(0, 0, -10);
-      const lookChase = new THREE.Vector3(0, -0.4, 0);
-      const lookFinalLocal = lookCockpit.lerp(lookChase, easedT);
-      this._scratchShipLook
-        .copy(lookFinalLocal)
-        .applyQuaternion(ship.quaternion)
-        .add(ship.position);
-      this.camera.lookAt(this._scratchShipLook);
-    } else {
-      // Legacy world-anchor behaviour for FlightScene's cinematic transit.
-      this.camera.position
-        .copy(this.root.position)
-        .add(this._scratchOffset)
-        .add(this._idleSwayPos)
-        .add(this.extraShakeOffset);
-
-      const lookCockpit = this._scratchLookAt.set(0, 0, -10);
-      const lookChase = new THREE.Vector3(0, -0.4, 0);
-      const lookFinal = lookCockpit.lerp(lookChase, easedT);
-      this.camera.lookAt(lookFinal);
-    }
-
-    // In cockpit mode head-look becomes a rotation offset on top of the
-    // lookAt so the player can pan around the cabin without changing the
-    // ship's forward axis. In chase mode the same head-look values are
-    // already consumed above as an orbital cam offset, so we skip it here.
-    const headWeight = 1 - easedT;
-    if (headWeight > 0.001) {
-      this.camera.rotateY(this.headLookYaw * headWeight);
-      this.camera.rotateX(this.headLookPitch * headWeight);
-    }
-
-    // FOV breathes between modes.
-    const targetFov = COCKPIT_FOV + (CHASE_FOV - COCKPIT_FOV) * easedT;
+    // FOV is part of the profile.
+    const prevFov = this.profileFov(this._prevViewMode);
+    const curFov = this.profileFov(this._viewMode);
+    const targetFov = prevFov + (curFov - prevFov) * tBlend;
     if (Math.abs(this.camera.fov - targetFov) > 0.01) {
-      this.camera.fov = damp(this.camera.fov, targetFov, 6, dt);
+      this.camera.fov = targetFov;
       this.camera.updateProjectionMatrix();
     }
 
-    // Visibility: cross-fade rocket in/out. We keep both groups attached;
-    // visibility flips at the midpoint to avoid double-render artifacts.
-    const showChase = easedT > 0.5;
-    this.chaseGroup.visible = easedT > 0.02;
-    this.cockpitGroup.visible = easedT < 0.98;
+    // Cockpit head-look: in cockpit mode the player can pan their head
+    // freely. We apply yaw/pitch as quaternion offsets after the lookAt
+    // so we don't induce ROLL drift. Weight by cockpit's blend share so
+    // the head-look fades out as we move into chase / external.
+    if (cockpitWeight > 0.001) {
+      // Rotate around the camera's local Y (yaw) then local X (pitch).
+      // Using the camera's *current* up (world Y after lookAt) keeps roll
+      // anchored to the world horizon — no slow drift over repeated pans.
+      const yaw = this.headLookYaw * cockpitWeight;
+      const pitch = this.headLookPitch * cockpitWeight;
+      this.camera.rotateOnWorldAxis(_worldUp, yaw);
+      this.camera.rotateX(pitch);
+    }
 
-    // Smoothly scale the rocket so it grows in instead of popping. Use a
-    // per-frame damped scale rather than a hard switch.
+    // Visibility:
+    //   cockpit weight > 0 → cockpit splat visible
+    //   chase + external weight > 0 → chase rocket + plume visible
+    this.cockpitGroup.visible = cockpitWeight > 0.02;
+    this.chaseGroup.visible = chaseWeight + externalWeight > 0.02;
+
+    // Smoothly scale the rocket so it grows in instead of popping.
     if (this.artemis) {
-      const targetScale = showChase ? 1 : 0.001;
+      const targetScale = chaseWeight + externalWeight > 0.5 ? 1 : 0.001;
       const s = damp(this.artemis.scale.x, targetScale, 7, dt);
       this.artemis.scale.setScalar(s);
     }
 
     // Plume responds to throttle/boost; only worth updating when visible.
-    this.plume.group.visible = easedT > 0.02 && this.throttle > 0.05;
+    this.plume.group.visible =
+      this.chaseGroup.visible && this.throttle > 0.05;
     if (this.plume.group.visible) {
       this.plume.setState(this.throttle, this.boost);
       this.plume.update(dt, elapsed);
@@ -472,12 +421,116 @@ export class CockpitRig {
 
     // Cockpit splat slow drift — "cabin breathing" — so the interior never
     // feels static. Only meaningful in cockpit mode.
-    const cockpitWeight = 1 - easedT;
     if (this.cockpitSplatGroup && cockpitWeight > 0.001) {
       const breath = Math.sin(elapsed * 1.05) * 0.0035 * cockpitWeight;
       const swayRoll = noise1D(elapsed * 0.18, 12.5) * 0.012 * cockpitWeight;
       this.cockpitSplatGroup.position.z = breath;
       this.cockpitSplatGroup.rotation.z = swayRoll;
+    }
+  }
+
+  /** Mix weight (0..1) of `mode` for the current crossfade `t`. */
+  private viewModeWeight(mode: ViewMode, t: number): number {
+    const cur = this._viewMode === mode ? 1 : 0;
+    const prev = this._prevViewMode === mode ? 1 : 0;
+    return prev + (cur - prev) * t;
+  }
+
+  /** Per-mode FOV. */
+  private profileFov(mode: ViewMode): number {
+    return mode === "cockpit"
+      ? COCKPIT_FOV
+      : mode === "chase"
+        ? CHASE_FOV
+        : EXTERNAL_FOV;
+  }
+
+  /**
+   * Compute camera world position + look target for `mode` into `outPos` /
+   * `outLook`. Pure (no side effects) so two profiles can be blended.
+   */
+  private computeProfile(
+    mode: ViewMode,
+    ship: ShipState | null,
+    outPos: THREE.Vector3,
+    outLook: THREE.Vector3,
+  ): void {
+    if (mode === "cockpit") {
+      if (ship) {
+        outPos.copy(ship.position);
+        // Look 10 units ahead along ship-forward.
+        outLook
+          .set(0, 0, -10)
+          .applyQuaternion(ship.quaternion)
+          .add(ship.position);
+      } else {
+        outPos.copy(this.root.position).add(COCKPIT_OFFSET);
+        outLook.set(0, 0, -10);
+      }
+      return;
+    }
+
+    if (mode === "chase") {
+      if (ship) {
+        // Horizontal anti-forward + world-up. Always above the horizon.
+        const fwd = _scratchFwd
+          .set(0, 0, -1)
+          .applyQuaternion(ship.quaternion);
+        const horizFwd = _scratchHorizFwd.set(fwd.x, 0, fwd.z);
+        if (horizFwd.lengthSq() < 0.001) {
+          horizFwd.set(0, 0, 1);
+        } else {
+          horizFwd.normalize();
+        }
+        const back = _scratchBack
+          .copy(horizFwd)
+          .negate()
+          .multiplyScalar(CHASE_BACK);
+        // Mouse head-look orbits the back vector around world up (yaw)
+        // and tips it up/down (pitch).
+        back.applyAxisAngle(_worldUp, this.headLookYaw);
+        const right = _scratchRight
+          .crossVectors(back, _worldUp)
+          .normalize();
+        if (right.lengthSq() > 0) {
+          back.applyAxisAngle(right, this.headLookPitch);
+        }
+        outPos
+          .copy(ship.position)
+          .add(back)
+          .add(_scratchUp.set(0, 1, 0).multiplyScalar(CHASE_UP_WORLD));
+        // Look at the ship centre with a slight downward bias.
+        outLook
+          .set(0, -0.4, 0)
+          .applyQuaternion(ship.quaternion)
+          .add(ship.position);
+      } else {
+        outPos.copy(this.root.position);
+        outLook.set(0, -0.4, 0);
+      }
+      return;
+    }
+
+    // mode === "external"
+    if (ship) {
+      // Anchor offset relative to ship (world-space vector).
+      const offset = _scratchExternalOffset
+        .copy(this.externalAnchor)
+        .sub(ship.position);
+      // Mouse-driven orbital rotation around world Y (yaw) + a pitch axis
+      // computed from the offset.
+      offset.applyAxisAngle(_worldUp, this.headLookYaw);
+      const pitchAxis = _scratchExternalPitchAxis
+        .crossVectors(_worldUp, offset)
+        .normalize();
+      if (pitchAxis.lengthSq() > 0) {
+        offset.applyAxisAngle(pitchAxis, this.headLookPitch);
+      }
+      outPos.copy(ship.position).add(offset);
+      outLook.copy(ship.position);
+    } else {
+      outPos.copy(this.externalAnchor);
+      outLook.copy(this.root.position);
     }
   }
 
@@ -527,9 +580,8 @@ export class CockpitRig {
     if (opts.tint) {
       splat.recolor.setRGB(opts.tint[0], opts.tint[1], opts.tint[2]);
     }
-    if (opts.opacity !== undefined) {
-      splat.opacity = opts.opacity;
-    }
+    this.cockpitTargetOpacity = opts.opacity ?? 1;
+    splat.opacity = this.cockpitTargetOpacity * this.cockpitFadeIn;
 
     // Render order so it always sits on top of the flight scene; depth test
     // off so we don't depth-fight the procedural skybox behind it.
@@ -615,8 +667,11 @@ void smoothstep;
  * around world up, and pitch rotates around the right axis post-yaw. Result
  * is in ship-local space, ready to be transformed by the ship's quaternion.
  */
-const _orbitYawAxis = new THREE.Vector3(0, 1, 0);
-// Separate scratch for the external camera so chase + external don't
-// stomp each other when both fire in the same frame.
-const _orbitYawAxisExt = new THREE.Vector3(0, 1, 0);
-const _orbitPitchAxisExt = new THREE.Vector3(1, 0, 0);
+const _worldUp = new THREE.Vector3(0, 1, 0);
+const _scratchFwd = new THREE.Vector3();
+const _scratchHorizFwd = new THREE.Vector3();
+const _scratchBack = new THREE.Vector3();
+const _scratchRight = new THREE.Vector3();
+const _scratchUp = new THREE.Vector3();
+const _scratchExternalOffset = new THREE.Vector3();
+const _scratchExternalPitchAxis = new THREE.Vector3();
