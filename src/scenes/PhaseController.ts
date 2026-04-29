@@ -84,6 +84,26 @@ export class PhaseController {
     return this._phase;
   }
 
+  /** World position of the destination planet's centre. */
+  get destinationCenter(): THREE.Vector3 {
+    return this.opts.destinationCenter;
+  }
+
+  /** Destination planet's radius (world units). */
+  get destinationRadius(): number {
+    return this.opts.destinationRadius;
+  }
+
+  /** Earth radius (world units). */
+  get earthRadius(): number {
+    return this.opts.earthRadius;
+  }
+
+  /** Earth centre (world units). */
+  get earthCenter(): THREE.Vector3 {
+    return this.opts.earthCenter;
+  }
+
   feel(): PhaseFeel {
     return FEEL_BY_PHASE[this._phase];
   }

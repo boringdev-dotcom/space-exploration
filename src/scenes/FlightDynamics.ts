@@ -54,9 +54,10 @@ export interface FlightDynamicsOpts {
 }
 
 const DEFAULTS: Required<FlightDynamicsOpts> = {
-  // 1 unit = 100 km. 80 units/sec^2 = 8000 km/s^2 (arcade-y; real rockets
-  // are ~1g = 0.1 km/s^2, but this is a simulator-feel game not hard-NASA).
-  maxThrust: 80,
+  // 1 unit = 100 km. Arcade-y, sized so the autopilot can smoothly cover
+  // the 5,000-unit destination route in roughly 80–90 seconds while still
+  // accelerating to cruise within ~5 seconds.
+  maxThrust: 140,
   boostBonus: 1.5,
   pitchRateMax: 0.9,
   yawRateMax: 0.9,
@@ -64,9 +65,8 @@ const DEFAULTS: Required<FlightDynamicsOpts> = {
   // 0.1% of velocity decays per second so untouched ships eventually stop.
   // Important so a stray input doesn't permanently throw you off course.
   dragPerSecond: 0.001,
-  // Cap at 2400 km/s. Cruise transit (5000 units) at this speed = ~2 sec
-  // minimum trip; throttle is what slows that to a 45-60s feel-true journey.
-  maxSpeed: 24,
+  // Cap at 6,000 km/s — paces the trip without dragging.
+  maxSpeed: 60,
 };
 
 export class FlightDynamics {

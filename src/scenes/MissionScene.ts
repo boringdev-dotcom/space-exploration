@@ -52,6 +52,11 @@ const SHIP_PAD_OFFSET = 4;
 const APPROACH_RANGE = 200; // distance to dest centre that flips to "approach"
 const TOUCHDOWN_RANGE = 8; // altitude above dest surface that flips to "touchdown"
 
+/** Ship-local forward axis (CockpitRig convention: -Z is forward). */
+const _shipForwardLocal = new THREE.Vector3(0, 0, -1);
+
+const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
 export interface MissionInput extends FlightDynamicsInput {
   /** Head-look yaw (radians) — passed straight to CockpitRig in cockpit mode. */
   headLookYaw: number;
@@ -117,6 +122,12 @@ export class MissionScene implements SceneSlot {
 
   private liftoffElapsed = 0;
   private readonly LIFTOFF_DURATION = 6;
+
+  /** Latest autopilot throttle value (0..2) — used for plume + shake feel. */
+  private autopilotThrottle = 0;
+  /** Reusable scratch for the desired-forward direction. */
+  private readonly _scratchDesiredFwd = new THREE.Vector3();
+  private readonly _scratchDesiredQuat = new THREE.Quaternion();
 
   /** True after the player has fired the engines for the first time. */
   ignited = false;
@@ -308,28 +319,19 @@ export class MissionScene implements SceneSlot {
 
   update(deltaSec: number, elapsedSec: number): void {
     this.earth.update(deltaSec, elapsedSec);
+
+    // Stars are placed at world radius 9500; if we never moved them with
+    // the ship they'd start to feel "left behind" once the rocket has
+    // actually traveled meaningful units. Keep them anchored on the
+    // CAMERA position so they always read as the infinitely-far horizon.
+    this.starfield.position.copy(this.camera.position);
     this.starfield.rotation.y += deltaSec * 0.001;
 
-    // Drive the dynamics — but the liftoff sequence overrides input until
-    // the handoff altitude.
+    // Liftoff is canned; everything else is on the autopilot.
     if (this.phaseController.phase === "liftoff" && this.ignited) {
       this.driveLiftoff(deltaSec);
     } else if (this.phaseController.phase !== "liftoff") {
-      // Apply phase throttle ceiling.
-      const feel = this.phaseController.feel();
-      const cappedThrottle = Math.min(this.input.throttle, feel.throttleCeiling);
-      const cappedBoost = feel.boostAllowed ? this.input.boost : 0;
-      this.dynamics.frozen = false;
-      this.dynamics.step(
-        {
-          pitchRate: this.input.pitchRate,
-          yawRate: this.input.yawRate,
-          rollRate: this.input.rollRate,
-          throttle: cappedThrottle,
-          boost: cappedBoost,
-        },
-        deltaSec,
-      );
+      this.runAutopilot(deltaSec);
     }
 
     // Phase machine looks at the post-step ship pose.
@@ -339,12 +341,15 @@ export class MissionScene implements SceneSlot {
     this.updateSurfaceFade(deltaSec);
 
     // Camera shake amplitude per phase (pre-cached `feel` to avoid double
-    // call).
+    // call). Throttle here is autopilot-driven, so use the dynamic
+    // throttle the rig is rendering with rather than the (now-ignored)
+    // player input.
     const feel = this.phaseController.feel();
-    const shakeAmp = 0.022 * feel.shakeScale * Math.min(1, this.input.throttle);
+    const shakeAmp = 0.022 * feel.shakeScale * this.autopilotThrottle;
     this.computeShake(elapsedSec, shakeAmp, this._scratchShake);
     this.rig.setExtraShake(this._scratchShake);
-    this.rig.setThrottle(this.input.throttle, this.input.boost);
+    this.rig.setThrottle(this.autopilotThrottle, 0);
+    // Head-look uses the player's mouse input; ship steering is autopilot.
     this.rig.setHeadLook(this.input.headLookYaw, this.input.headLookPitch);
 
     // Rig follows the (just-updated) ship.
@@ -446,6 +451,74 @@ export class MissionScene implements SceneSlot {
   }
   get viewMode(): ViewMode {
     return this.rig.viewMode;
+  }
+
+  /* ============================================================
+   * Autopilot
+   * ============================================================ */
+
+  /**
+   * Auto-fly the ship from cruise → approach → touchdown. The player's
+   * mouse stays alive for head-look but doesn't steer the rocket — the
+   * autopilot points the nose at the destination, holds cruise throttle,
+   * eases off as it approaches, and tilts vertical for a soft hover-down
+   * landing.
+   */
+  private runAutopilot(deltaSec: number): void {
+    const ship = this.dynamics.ship;
+    const phase = this.phaseController.phase;
+    const dest = this.phaseController.destinationCenter;
+    const destRadius = this.phaseController.destinationRadius;
+
+    // Desired-forward direction in world space.
+    let throttle = 1.0;
+    if (phase === "touchdown") {
+      // Nose UP relative to the destination's surface (radial outward).
+      this._scratchDesiredFwd
+        .copy(ship.position)
+        .sub(dest)
+        .normalize();
+      const aglDest = this.phaseController.altitudeAboveDestination(ship);
+      // Ramp throttle from 0.45 (just enough to slow the descent) at
+      // altitude=touchdownRange down to 0 at altitude=0 — gentle
+      // hover-and-settle.
+      throttle = clamp01(aglDest / TOUCHDOWN_RANGE) * 0.45;
+    } else {
+      // Cruise / approach: point at the destination centre.
+      this._scratchDesiredFwd
+        .copy(dest)
+        .sub(ship.position)
+        .normalize();
+
+      if (phase === "approach") {
+        // Decelerate as we close in: range scales from APPROACH_RANGE
+        // (full cruise) down to (destRadius * 1.4) (drop to 35%).
+        const range = this.phaseController.rangeToDestination(ship);
+        const innerStop = destRadius * 1.4;
+        const denom = Math.max(0.001, APPROACH_RANGE - innerStop);
+        const t = clamp01((range - innerStop) / denom);
+        throttle = 0.35 + 0.65 * t;
+      }
+    }
+
+    // Slerp ship attitude toward the desired forward. Damp toward the
+    // target with a half-life of ~0.4s so the ship banks smoothly without
+    // overshooting.
+    this._scratchDesiredQuat.setFromUnitVectors(
+      _shipForwardLocal,
+      this._scratchDesiredFwd,
+    );
+    const slerpT = 1 - Math.exp(-2.5 * deltaSec);
+    ship.quaternion.slerp(this._scratchDesiredQuat, slerpT);
+
+    // Run dynamics with autopilot throttle, no rotational rate input
+    // (we steered above by directly slerping the quaternion).
+    this.autopilotThrottle = throttle;
+    this.dynamics.frozen = false;
+    this.dynamics.step(
+      { pitchRate: 0, yawRate: 0, rollRate: 0, throttle, boost: 0 },
+      deltaSec,
+    );
   }
 
   /* ============================================================
