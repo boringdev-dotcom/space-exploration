@@ -55,6 +55,7 @@ const TOUCHDOWN_RANGE = 8; // altitude above dest surface that flips to "touchdo
 
 /** Ship-local forward axis (CockpitRig convention: -Z is forward). */
 const _shipForwardLocal = new THREE.Vector3(0, 0, -1);
+const _scratchTouchTarget = new THREE.Vector3();
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -344,6 +345,45 @@ export class MissionScene implements SceneSlot {
     this.liftoffElapsed = 0;
   }
 
+  /**
+   * Skip the cruise + approach and jump the ship to a hover-down pose
+   * just above the destination, then let the touchdown autopilot settle
+   * it. Triggered by the in-flight "Skip to Landing" button.
+   */
+  skipToLanding(): void {
+    if (this.phaseController.phase === "landed") return;
+    const dest = this.phaseController.destinationCenter;
+    const destRadius = this.phaseController.destinationRadius;
+
+    // Place the ship ~6 units above the destination surface along a
+    // stable radial (we pick +Y so the world lighting reads cleanly),
+    // pointed radially outward.
+    const radial = new THREE.Vector3(0, 1, 0); // arbitrary stable radial
+    const pos = new THREE.Vector3()
+      .copy(radial)
+      .multiplyScalar(destRadius + 5)
+      .add(dest);
+    const quat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 0, -1),
+      radial,
+    );
+    this.dynamics.setPose(pos, quat);
+    this.dynamics.frozen = true;
+    this.dynamics.ship.velocity.set(0, 0, 0);
+
+    // Force the cinematic to settled cockpit so the autopilot owns the
+    // descent without any opening-stage scaffolding interfering.
+    this.openingStage = "cockpit";
+    this.rig.setView("cockpit");
+
+    // Drop straight into touchdown phase — the new touchdown autopilot
+    // (damped position move toward the surface) handles the rest.
+    this.phaseController.forcePhase("touchdown");
+
+    // Pre-load the surface splat now so it's ready by the time we settle.
+    this.beginTouchdown();
+  }
+
   enter(): void {
     this.rig.attachCockpitToCamera();
     if (this.spark && this.spark.parent !== this.scene) {
@@ -543,55 +583,123 @@ export class MissionScene implements SceneSlot {
     const dest = this.phaseController.destinationCenter;
     const destRadius = this.phaseController.destinationRadius;
 
-    // Desired-forward direction in world space.
-    let throttle = 1.0;
-    if (phase === "touchdown") {
-      // Nose UP relative to the destination's surface (radial outward).
-      this._scratchDesiredFwd
-        .copy(ship.position)
-        .sub(dest)
-        .normalize();
-      const aglDest = this.phaseController.altitudeAboveDestination(ship);
-      // Ramp throttle from 0.45 (just enough to slow the descent) at
-      // altitude=touchdownRange down to 0 at altitude=0 — gentle
-      // hover-and-settle.
-      throttle = clamp01(aglDest / TOUCHDOWN_RANGE) * 0.45;
-    } else {
-      // Cruise / approach: point at the destination centre.
+    if (phase === "cruise") {
+      // Cruise: nose at the destination, full thrust until approach.
       this._scratchDesiredFwd
         .copy(dest)
         .sub(ship.position)
         .normalize();
-
-      if (phase === "approach") {
-        // Decelerate as we close in: range scales from APPROACH_RANGE
-        // (full cruise) down to (destRadius * 1.4) (drop to 35%).
-        const range = this.phaseController.rangeToDestination(ship);
-        const innerStop = destRadius * 1.4;
-        const denom = Math.max(0.001, APPROACH_RANGE - innerStop);
-        const t = clamp01((range - innerStop) / denom);
-        throttle = 0.35 + 0.65 * t;
-      }
+      this.slerpAttitude(this._scratchDesiredFwd, deltaSec, 2.5);
+      this.autopilotThrottle = 1.0;
+      this.dynamics.frozen = false;
+      this.dynamics.step(
+        { pitchRate: 0, yawRate: 0, rollRate: 0, throttle: 1.0, boost: 0 },
+        deltaSec,
+      );
+      return;
     }
 
-    // Slerp ship attitude toward the desired forward. Damp toward the
-    // target with a half-life of ~0.4s so the ship banks smoothly without
-    // overshooting.
+    if (phase === "approach") {
+      // Approach: aim the nose at the destination but DAMPEN velocity so
+      // the ship arrives at touchdown range with a low closing speed.
+      // Without this damping the ship slams into the planet at full
+      // cruise velocity and oscillates between approach/touchdown.
+      this._scratchDesiredFwd
+        .copy(dest)
+        .sub(ship.position)
+        .normalize();
+      this.slerpAttitude(this._scratchDesiredFwd, deltaSec, 2.5);
+
+      const range = this.phaseController.rangeToDestination(ship);
+      const innerStop = destRadius * 1.4;
+      const denom = Math.max(0.001, APPROACH_RANGE - innerStop);
+      const closeness = 1 - clamp01((range - innerStop) / denom); // 0..1
+
+      // Velocity damping: at the outer edge of approach we keep cruise
+      // speed; at the inner edge we damp aggressively (target ~3 u/s
+      // closing velocity = 300 km/s, well below touchdown trip speed).
+      const dampLambda = 0.4 + 6.5 * closeness; // 0.4..6.9 per second
+      const dampFactor = Math.exp(-dampLambda * deltaSec);
+      ship.velocity.multiplyScalar(dampFactor);
+
+      // Throttle low; we're mostly coasting + damping. Just enough
+      // so the plume doesn't read as "off".
+      this.autopilotThrottle = 0.25 * (1 - closeness);
+      this.dynamics.frozen = false;
+      this.dynamics.step(
+        {
+          pitchRate: 0,
+          yawRate: 0,
+          rollRate: 0,
+          throttle: this.autopilotThrottle,
+          boost: 0,
+        },
+        deltaSec,
+      );
+      return;
+    }
+
+    if (phase === "touchdown") {
+      // Touchdown: orient the ship vertically (nose pointing radially
+      // OUTWARD from the destination) for a hover-down landing pose,
+      // then directly drive the position downward with a damped
+      // approach to touchdownAgl. We don't use the dynamics integrator
+      // here — physics-accurate retrograde braking creates the loop
+      // that bounces the ship between phases. The "hover-down" model
+      // is simple and reliable: every frame, we move toward the touch
+      // point with a critically-damped exponential.
+      const radial = this._scratchDesiredFwd
+        .copy(ship.position)
+        .sub(dest)
+        .normalize();
+      this.slerpAttitude(radial, deltaSec, 2.0);
+
+      // Touch point: radius destRadius + touchdownAgl-of-half along
+      // radial. (touchdownAgl = 0.5 in PhaseController; we land just
+      // above the surface.)
+      const touchPoint = this._scratchDesiredQuat as unknown as THREE.Vector3;
+      void touchPoint; // (not actually using the quat scratch as Vec3)
+      const targetPos = _scratchTouchTarget
+        .copy(radial)
+        .multiplyScalar(destRadius + 0.4)
+        .add(dest);
+
+      // Damp ship.position toward targetPos; lambda ramps with how
+      // close we already are so the final approach is gentle.
+      const aglDest = this.phaseController.altitudeAboveDestination(ship);
+      const aglFrac = clamp01(aglDest / TOUCHDOWN_RANGE);
+      const lambda = 1.6 + (1 - aglFrac) * 1.0;
+      const k = 1 - Math.exp(-lambda * deltaSec);
+      ship.position.x += (targetPos.x - ship.position.x) * k;
+      ship.position.y += (targetPos.y - ship.position.y) * k;
+      ship.position.z += (targetPos.z - ship.position.z) * k;
+
+      // Velocity is implicit from the position deltas; damp the stored
+      // velocity to zero so the touch is a soft settle.
+      ship.velocity.multiplyScalar(Math.exp(-4 * deltaSec));
+
+      // A gentle plume keeps the visual.
+      this.autopilotThrottle = 0.15 * aglFrac;
+      this.dynamics.frozen = true; // we drove the position above
+      return;
+    }
+
+    // landed: nothing for us to do; PhaseController/handoff owns it.
+    this.autopilotThrottle = 0;
+  }
+
+  /** Slerp the ship's quaternion toward the given world-space forward. */
+  private slerpAttitude(
+    desiredFwd: THREE.Vector3,
+    deltaSec: number,
+    rate: number,
+  ): void {
     this._scratchDesiredQuat.setFromUnitVectors(
       _shipForwardLocal,
-      this._scratchDesiredFwd,
+      desiredFwd,
     );
-    const slerpT = 1 - Math.exp(-2.5 * deltaSec);
-    ship.quaternion.slerp(this._scratchDesiredQuat, slerpT);
-
-    // Run dynamics with autopilot throttle, no rotational rate input
-    // (we steered above by directly slerping the quaternion).
-    this.autopilotThrottle = throttle;
-    this.dynamics.frozen = false;
-    this.dynamics.step(
-      { pitchRate: 0, yawRate: 0, rollRate: 0, throttle, boost: 0 },
-      deltaSec,
-    );
+    const slerpT = 1 - Math.exp(-rate * deltaSec);
+    this.dynamics.ship.quaternion.slerp(this._scratchDesiredQuat, slerpT);
   }
 
   /* ============================================================

@@ -350,6 +350,13 @@
             <span class="phase-strip__chip" data-phase="touchdown">TOUCHDOWN</span>
           </div>
 
+          <!-- Skip-to-landing pill (top-right). Player can short-circuit
+               the cruise + approach and jump straight to touchdown. -->
+          <button class="skip-pill" id="flight-skip-btn" type="button">
+            <span class="material-symbols-outlined skip-pill__icon">flight_land</span>
+            <span class="skip-pill__label">Skip to Landing</span>
+          </button>
+
           <!-- Minimal flight readout (top-left). -->
           <div class="flight-readout" id="flight-readout">
             <div class="flight-readout__row">
