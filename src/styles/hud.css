@@ -2999,6 +2999,90 @@
   transition: right 0.4s ease-out;
 }
 
+/* =====================================================================
+ * Mission phase strip — 4 chips: LIFTOFF › CRUISE › APPROACH › TOUCHDOWN.
+ * Active phase glows cyan; completed phases dim amber; pending phases
+ * stay neutral. Sits below the view-mode pill at the top centre.
+ * ===================================================================== */
+
+.phase-strip {
+  position: absolute;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 16px;
+  border: var(--glass-border-soft);
+  border-radius: var(--radius-full);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: var(--letter-caps-wide);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+  z-index: 6;
+}
+
+#screen-flight.is-active .phase-strip {
+  opacity: 1;
+}
+
+.phase-strip__chip {
+  color: var(--on-surface-variant);
+  opacity: 0.5;
+  transition: color 0.35s ease-out, opacity 0.35s ease-out, text-shadow 0.35s ease-out;
+}
+
+.phase-strip__chip.is-done {
+  color: var(--secondary);
+  opacity: 0.65;
+}
+
+.phase-strip__chip.is-active {
+  color: var(--primary-bright);
+  opacity: 1;
+  text-shadow: 0 0 10px rgba(76, 214, 255, 0.85);
+}
+
+.phase-strip__sep {
+  color: var(--outline-variant);
+  opacity: 0.6;
+}
+
+/* =====================================================================
+ * Altimeter card — sits below the existing right column distance card.
+ * ===================================================================== */
+
+.altimeter-card {
+  position: absolute;
+  right: 56px;
+  bottom: 200px;
+  width: min(220px, 22vw);
+  padding: 12px 14px;
+  background: var(--glass-bg);
+  border: var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg);
+  z-index: 5;
+  pointer-events: none;
+  transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+}
+
+#screen-flight.is-active .altimeter-card {
+  animation: flight-hud-fade-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: 0.55s;
+}
+
+.altimeter-card .readout {
+  margin-top: 6px;
+}
+
 /* Choreographed reveal of the flight HUD when entering the screen.
  * The keyframe is opacity-only so other transforms compose. */
 @keyframes flight-hud-fade-in {

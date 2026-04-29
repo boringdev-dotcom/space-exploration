@@ -19,6 +19,15 @@ export interface Cockpit {
   /** SPZ URL produced by Marble. Updated by the generator script. */
   splatUrl: string;
   pose: CockpitPose;
+  /**
+   * Multiplicative tint applied to every splat in the cockpit. Marble bakes its
+   * own "studio" lighting into the splat colours which reads too bright through
+   * ACES tone-mapping; this lets us pull the cabin back to a moody dim level
+   * without re-prompting. (1, 1, 1) = original brightness.
+   */
+  tint: [number, number, number];
+  /** Global splat opacity multiplier (0..1). Lowers slightly so the windshield reads cleaner. */
+  opacity: number;
 }
 
 export const COCKPITS: Cockpit[] = [
@@ -35,7 +44,7 @@ export const COCKPITS: Cockpit[] = [
     // Mocked default — points at a public Spark sample so the rig renders
     // end-to-end before the real Marble world is generated. Will be
     // overwritten by `worlds:generate -- --table cockpits`.
-    splatUrl: "https://cdn.marble.worldlabs.ai/d632e6ce-15b6-4f76-ac38-c3e363296aa3/5c242270-aee9-400a-b083-0f7b0b822505_ceramic.spz",
+    splatUrl: "https://cdn.marble.worldlabs.ai/524e6c70-2a1f-4b31-a006-e97a283766ab/c97cc273-8483-4826-8805-1740c09bc05e_ceramic.spz",
     // Marble's scan origin sits at (0, 0, 0) looking down -Z (the windshield
     // direction), which is exactly where our cockpit camera lives. The
     // splat is parented to the camera so it follows the player's head.
@@ -44,6 +53,10 @@ export const COCKPITS: Cockpit[] = [
       splatRotation: [0, 0, 0],
       splatScale: 1.0,
     },
+    // Slightly cool 55% tint — dims the over-bright Marble cabin enough to
+    // read as an interior without losing the instrument detail.
+    tint: [0.55, 0.58, 0.62],
+    opacity: 0.95,
   },
 ];
 

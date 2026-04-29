@@ -5,11 +5,11 @@ import type { SceneSlot } from "./Scene";
 import { LaunchScene } from "./LaunchScene";
 import { HangarScene } from "./HangarScene";
 import { FlightScene } from "./FlightScene";
+import { MissionScene } from "./MissionScene";
 import { SurfaceScene } from "./SurfaceScene";
 import { mountHangarHud, mountLaunchHud } from "../hud/launchControl";
 import { mountSelectHud } from "../hud/destinationSelector";
 import { mountFlightHud } from "../hud/flightHud";
-import { mountArrivalHud } from "../hud/arrivalHud";
 import { mountSurfaceHud } from "../hud/surfaceHud";
 import { getPlanet, type Planet } from "../data/planets";
 import {
@@ -23,20 +23,28 @@ import { createPostFx, type PostFx } from "../util/post";
 import { FlightInput, type FlightInputSnapshot } from "./FlightInput";
 import { damp } from "../util/feel";
 
+/**
+ * Top-level app state machine. The mission state runs the entire continuous
+ * flight from Earth pad → cruise → approach → touchdown; on touchdown the
+ * scene fires a handoff event and we swap to `surface` (walking) with the
+ * ship's final transform as the spawn pose. The legacy `flight` / `arrival`
+ * states are retained only so the hangar/launch screens that still link
+ * back to them keep compiling — the new flow doesn't enter them.
+ */
 export type AppState =
   | "launch"
   | "hangar"
   | "select"
-  | "flight"
-  | "arrival"
+  | "mission"
   | "surface";
 
 const SCREEN_BY_STATE: Record<AppState, string> = {
   launch: "screen-launch",
   hangar: "screen-hangar",
   select: "screen-select",
-  flight: "screen-flight",
-  arrival: "screen-arrival",
+  // Mission reuses the flight HUD chrome — phase strip / altimeter etc. are
+  // grafted on by the HUD code in a later todo.
+  mission: "screen-flight",
   surface: "screen-surface",
 };
 
@@ -45,8 +53,7 @@ const SIDE_NAV_BY_STATE: Record<AppState, string> = {
   launch: "launch",
   hangar: "launch",
   select: "select",
-  flight: "flight",
-  arrival: "flight",
+  mission: "flight",
   surface: "surface",
 };
 
@@ -55,8 +62,7 @@ const TOP_NAV_BY_STATE: Record<AppState, string> = {
   launch: "hangar",
   hangar: "hangar",
   select: "control",
-  flight: "telemetry",
-  arrival: "telemetry",
+  mission: "telemetry",
   surface: "fleet",
 };
 
@@ -69,7 +75,8 @@ export class SceneManager {
   // without us having to thread state/slot identity through manager methods.
   readonly launch: LaunchScene;
   readonly hangar: HangarScene;
-  readonly flight: FlightScene;
+  readonly flight: FlightScene; // legacy cinematic transit (kept for fallback)
+  readonly mission: MissionScene;
   readonly surface: SurfaceScene;
 
   private active: SceneSlot;
@@ -80,7 +87,7 @@ export class SceneManager {
   private elapsed = 0;
   private hudCleanups: Array<() => void> = [];
   private flashEl: HTMLElement | null = null;
-  private viewToggleListeners: Array<(mode: "cockpit" | "chase") => void> = [];
+  private viewToggleListeners: Array<(mode: "cockpit" | "chase" | "external") => void> = [];
   private inputListeners: Array<(snapshot: FlightInputSnapshot) => void> = [];
 
   private flightInput: FlightInput;
@@ -112,12 +119,40 @@ export class SceneManager {
     this.launch = new LaunchScene(canvas);
     this.hangar = new HangarScene(canvas, this.spark);
     this.flight = new FlightScene(this.spark);
+    this.mission = new MissionScene(this.spark);
+    this.mission.setEvents({
+      onPhaseChange: (next) => {
+        // Each phase transition gets a single cue. The drone keeps running
+        // continuously (modulated by throttle/boost via setDroneFlightState
+        // each frame); these cues just punctuate the moment.
+        switch (next) {
+          case "cruise":
+            playCue("warp");
+            break;
+          case "approach":
+            playCue("arrive");
+            this.post.setIntensity("calm");
+            break;
+          case "touchdown":
+            playCue("land");
+            break;
+          case "landed":
+            playCue("boostThump");
+            break;
+        }
+      },
+      onTouchdown: ({ spawnPose }) => {
+        this.surface.setSpawnPose?.(spawnPose);
+        this.setState("surface");
+      },
+    });
     this.surface = new SurfaceScene(this.spark, canvas);
 
     this.flightInput = new FlightInput(canvas);
     this.lastInput = {
       pitch: 0, yaw: 0, roll: 0,
       throttle: 1, boost: 0, boostCharge: 1, boosting: false,
+      headLookYaw: 0, headLookPitch: 0,
     };
 
     this.active = this.launch;
@@ -139,17 +174,29 @@ export class SceneManager {
    * so it works whether or not pointer-lock is active.
    */
   private readonly onGlobalKey = (e: KeyboardEvent): void => {
-    if (e.code !== "KeyC") return;
-    if (this.state !== "flight" && this.state !== "arrival") return;
-    if (e.repeat) return;
-    this.flight.toggleView();
-    playCue("viewToggle");
-    const mode = this.flight.viewMode;
-    this.viewToggleListeners.forEach((cb) => cb(mode));
+    if (e.code === "KeyC" && !e.repeat) {
+      if (this.state === "mission") {
+        this.mission.toggleView();
+        playCue("viewToggle");
+        const mode = this.mission.viewMode;
+        this.viewToggleListeners.forEach((cb) => cb(mode));
+      }
+    }
+    // First press of W during liftoff fires ignition. e.repeat guards
+    // against holding W resetting the canned ascent timer every frame.
+    if (
+      e.code === "KeyW" &&
+      !e.repeat &&
+      this.state === "mission" &&
+      !this.mission.ignited
+    ) {
+      this.mission.ignite();
+      playCue("launch");
+    }
   };
 
   /** HUD subscribes here to update the view-mode badge. */
-  onViewToggle(cb: (mode: "cockpit" | "chase") => void): () => void {
+  onViewToggle(cb: (mode: "cockpit" | "chase" | "external") => void): () => void {
     this.viewToggleListeners.push(cb);
     return () => {
       this.viewToggleListeners = this.viewToggleListeners.filter(
@@ -166,8 +213,10 @@ export class SceneManager {
     };
   }
 
-  getFlightViewMode(): "cockpit" | "chase" {
-    return this.flight.viewMode;
+  getFlightViewMode(): "cockpit" | "chase" | "external" {
+    return this.state === "mission"
+      ? this.mission.viewMode
+      : this.flight.viewMode;
   }
 
   /** Request pointer lock for cockpit mouse-look. HUD calls on click. */
@@ -186,8 +235,8 @@ export class SceneManager {
     this.updateScreenVisibility();
     this.flashTransition();
 
-    // Tear down flight input when leaving the flight loop.
-    if (prev === "flight" && next !== "flight" && next !== "arrival") {
+    // Tear down flight input when leaving the playable mission.
+    if (prev === "mission" && next !== "mission") {
       this.flightInput.stop();
     }
 
@@ -212,24 +261,22 @@ export class SceneManager {
         stopDrone();
         break;
       }
-      case "flight": {
+      case "mission": {
         if (!this.selectedPlanet) {
           this.setState("select");
           return;
         }
-        this.swapScene(this.flight);
-        this.flight.beginTransit(this.selectedPlanet);
-        this.post.setIntensity("warp");
-        playCue("warp");
+        this.swapScene(this.mission);
+        this.mission.beginMission(this.selectedPlanet);
+        // Mission starts in calm liftoff feel — bloom ramps up via phase
+        // biases when we hit cruise. Going straight to "warp" at takeoff
+        // blew out Earth's lit side because the GLB albedo + atmosphere
+        // shell blew the bloom threshold instantly.
+        this.post.setIntensity("default");
+        playCue("launch");
         startDrone();
         this.flightInput.reset();
         this.flightInput.start();
-        break;
-      }
-      case "arrival": {
-        this.flight.beginArrival();
-        this.post.setIntensity("calm");
-        playCue("arrive");
         break;
       }
       case "surface": {
@@ -305,33 +352,42 @@ export class SceneManager {
         },
         onLaunch: (planet) => {
           this.selectedPlanet = planet;
-          this.setState("flight");
+          this.setState("mission");
         },
       }),
     );
 
+    // Mission reuses the flight HUD chrome — telemetry is sourced from the
+    // mission scene's live ship state. ETA and "skip" are no longer
+    // meaningful in continuous flight, so they're stubbed.
     this.hudCleanups.push(
       mountFlightHud({
-        getProgress: () => this.flight.progress,
-        getVelocityKmS: () => this.flight.velocityKmS,
-        getEtaSec: () => this.flight.etaSec,
-        getHeading: () => this.flight.headingDeg,
-        getDistanceKm: () => this.flight.distanceKm,
+        getProgress: () => this.missionProgress(),
+        getVelocityKmS: () => this.mission.getTelemetry().speedKmS,
+        getEtaSec: () => 0,
+        getHeading: () => this.mission.getTelemetry().shipYawDeg,
+        getDistanceKm: () => this.mission.getTelemetry().rangeKm,
         getTarget: () => this.selectedPlanet,
-        onArrive: () => this.setState("arrival"),
-        onSkip: () => this.flight.skipToArrival(),
+        onArrive: () => {},
+        onSkip: () => {},
         onFlightInput: (cb) => this.onFlightInput(cb),
         onViewToggle: (cb) => this.onViewToggle(cb),
         getViewMode: () => this.getFlightViewMode(),
         onLockRequest: () => this.requestFlightPointerLock(),
-      }),
-    );
-
-    this.hudCleanups.push(
-      mountArrivalHud({
-        getTarget: () => this.selectedPlanet,
-        onDeploy: () => this.setState("surface"),
-        onReroute: () => this.setState("select"),
+        getMissionTelemetry: () => {
+          const t = this.mission.getTelemetry();
+          // Switch the altimeter to "destination AGL" once we're inside
+          // approach range so the readout is meaningful for landing.
+          const useDest =
+            t.phase === "approach" ||
+            t.phase === "touchdown" ||
+            t.phase === "landed";
+          return {
+            phase: t.phase,
+            altitudeKm: useDest ? t.destinationAltitudeKm : t.altitudeKm,
+            altitudeIsDestination: useDest,
+          };
+        },
       }),
     );
 
@@ -382,36 +438,40 @@ export class SceneManager {
     this.lastTime = timeMs;
     this.elapsed += delta;
 
-    // Pump flight input first so the flight scene update sees fresh values.
-    if (this.state === "flight" || this.state === "arrival") {
+    // Pump flight input first so the mission scene update sees fresh values.
+    if (this.state === "mission") {
+      // Mouse stays "alive" across all view modes — cockpit interprets it
+      // as head-look, chase as orbital cam yaw/pitch, external as free
+      // orbit around a fixed anchor. The rig does the per-mode mapping.
+      this.flightInput.setHeadLookEnabled(true);
       this.lastInput = this.flightInput.step(delta);
-      this.flight.setInput({
-        pitch: this.lastInput.pitch,
-        yaw: this.lastInput.yaw,
-        roll: this.lastInput.roll,
+
+      // Map the input snapshot to the mission's FlightDynamics input shape
+      // (rate commands instead of pose targets).
+      this.mission.setInput({
+        pitchRate: clamp1(this.lastInput.pitch / 0.38),
+        yawRate: clamp1(this.lastInput.yaw / 0.38),
+        rollRate: clamp1(this.lastInput.roll / 0.61),
         throttle: this.lastInput.throttle,
         boost: this.lastInput.boost,
+        headLookYaw: this.lastInput.headLookYaw,
+        headLookPitch: this.lastInput.headLookPitch,
       });
 
-      // Couple post fx and drone audio to the input so the picture and
-      // soundscape *breathe* with throttle and boost.
-      const targetBloomMul = 1 + this.lastInput.boost * 0.35;
+      // Post-fx + drone breathe with throttle / boost. The mission's own
+      // phase feel adds extra bloom bias on top of the input bias.
+      const phaseBias = this.mission.getDebugSnapshot().feel.bloomBias;
+      const targetBloomMul = 1 + this.lastInput.boost * 0.35 + phaseBias;
       this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
       const targetGrain = 0.04 + this.lastInput.boost * 0.025;
       this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
       this.post.setBias({ bloomMul: this.bloomBias, grain: this.grainBias });
       setDroneFlightState(this.lastInput.throttle, this.lastInput.boost);
 
-      // Notify HUD listeners every frame.
       this.inputListeners.forEach((cb) => cb(this.lastInput));
     }
 
     this.active.update(delta, this.elapsed);
-
-    // Auto-advance from flight → arrival when transit completes.
-    if (this.state === "flight" && this.flight.progress >= 1) {
-      this.setState("arrival");
-    }
 
     if (this.post.bypass) {
       // Make sure we draw to the canvas, not whatever offscreen target the
@@ -434,6 +494,7 @@ export class SceneManager {
     this.launch.resize(w, h);
     this.hangar.resize(w, h);
     this.flight.resize(w, h);
+    this.mission.resize(w, h);
     this.surface.resize(w, h);
   };
 
@@ -446,6 +507,7 @@ export class SceneManager {
     this.launch.dispose();
     this.hangar.dispose();
     this.flight.dispose();
+    this.mission.dispose();
     this.surface.dispose();
     this.post.dispose();
     this.renderer.dispose();
@@ -454,7 +516,31 @@ export class SceneManager {
   /* Utility for HUD helpers that need to look up a planet by id. */
   pickPlanet(id: string): void {
     this.selectedPlanet = getPlanet(id);
-    this.setState("flight");
+    this.setState("mission");
+  }
+
+  /**
+   * Mission "progress" 0..1 for the legacy flight HUD progress bar. We
+   * derive a rough liftoff→cruise→approach→touchdown completion number
+   * from the phase + range so the existing chrome reads the journey.
+   */
+  private missionProgress(): number {
+    const t = this.mission.getTelemetry();
+    switch (t.phase) {
+      case "liftoff":
+        return Math.max(0, Math.min(0.1, t.altitudeKm / 8000));
+      case "cruise": {
+        // Rough: rangeKm / 500000 (5000 units * 100 km/unit) inverted.
+        const total = 500_000;
+        return 0.1 + 0.7 * (1 - Math.max(0, Math.min(1, t.rangeKm / total)));
+      }
+      case "approach":
+        return 0.8;
+      case "touchdown":
+        return 0.95;
+      case "landed":
+        return 1;
+    }
   }
 
   /** Snapshot used by the on-screen debug HUD. */
@@ -473,4 +559,8 @@ export class SceneManager {
       surface: this.surface.getDebugSnapshot(),
     };
   }
+}
+
+function clamp1(x: number): number {
+  return Math.max(-1, Math.min(1, x));
 }

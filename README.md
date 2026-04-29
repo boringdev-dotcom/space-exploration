@@ -37,13 +37,16 @@ Open http://localhost:5173.
 
 - **Launch Control**: click `INITIATE LAUNCH` to begin.
 - **Destination Selector**: click a planet card.
-- **In-Flight (cockpit simulator)**: click the canvas to capture the pointer.
-  - `Mouse` (or `Arrow Keys`) — pitch / yaw the spacecraft.
+- **Mission (continuous flight from Earth pad to touchdown)**: click the canvas to capture the pointer, then:
+  - `W` once — ignite engines (canned 6-second liftoff with gravity-turn arc).
+  - `Mouse` — head-look around the cockpit (independent of ship heading); orbital cam in chase view; free orbit in external view.
+  - `Arrow Keys` — pitch / yaw the spacecraft (ship steering).
   - `Q` / `E` — roll left / right.
   - `W` / `S` — throttle up / down (auto-returns to cruise).
   - `Space` — boost (drains gauge, recharges when released).
-  - `C` — toggle between **cockpit view** (Marble splat interior) and **chase cam** (third-person Artemis with engine plume).
-  - `Skip Approach` button — skip straight to arrival.
+  - `C` — cycle view: **cockpit** (Marble splat interior) → **chase** (third-person Artemis with engine plume) → **external** (free-orbit "fly-by" cam, auto-recentres after 6s of no input).
+  - HUD: phase strip (`LIFTOFF › CRUISE › APPROACH › TOUCHDOWN`), live altimeter (Earth AGL during cruise; destination AGL during approach/touchdown), speed in km/s, throttle + boost gauges, attitude indicator.
+  - On touchdown, the camera detaches from the ship and you spawn into the surface walk where you landed.
 - **Surface**: click the canvas to capture the pointer, then `WASD` + mouse to walk around. Press `ESC` to release. Click `RETURN TO ORBIT` to pick another planet.
 
 ## Scripts
@@ -66,18 +69,22 @@ Open http://localhost:5173.
 ```
 index.html                      HUD overlays + canvas + import map
 src/main.ts                     Renderer + SceneManager + animation loop
-src/scenes/SceneManager.ts      State machine: launch -> hangar -> select -> flight -> arrival -> surface
-src/scenes/LaunchScene.ts       Earth + starfield + rocket
+src/scenes/SceneManager.ts      State machine: launch -> hangar -> select -> mission -> surface
+src/scenes/LaunchScene.ts       Earth + starfield + rocket (legacy launch screen)
 src/scenes/HangarScene.ts       Artemis SLS pad scene (optional Marble backdrop)
-src/scenes/FlightScene.ts       Warp starfield + planet approach + cockpit rig
-src/scenes/CockpitRig.ts        Cockpit splat + chase-cam Artemis + engine plume + view-mode dolly
-src/scenes/FlightInput.ts       Smoothed keyboard + mouse input (pitch/yaw/roll, throttle, boost)
-src/scenes/SurfaceScene.ts      Spark splat world + first-person controls
+src/scenes/MissionScene.ts      One continuous flight: Earth + ship + destination + cockpit rig
+src/scenes/Earth.ts             Earth GLB body + procedural cloud + atmosphere shells (mission scale)
+src/scenes/FlightScene.ts       Legacy cinematic transit (kept as fallback; no longer in the flow)
+src/scenes/FlightDynamics.ts    Arcade Newtonian ship transform + integration
+src/scenes/PhaseController.ts   liftoff -> cruise -> approach -> touchdown phase machine
+src/scenes/CockpitRig.ts        Cockpit splat + chase-cam Artemis + engine plume + view-mode cycle (cockpit | chase | external)
+src/scenes/FlightInput.ts       Smoothed input: arrows steer ship, mouse drives head-look / orbital cam
+src/scenes/SurfaceScene.ts      Spark splat world + first-person walking; accepts spawn pose from MissionScene
 src/hud/                        DOM-overlay HUD components per state
 src/util/feel.ts                Shared easing / damping / spring helpers
 src/util/enginePlume.ts         Layered engine plume (core + noise plume + haze + particles)
 src/data/planets.ts             Destination metadata + splat URLs (auto-written)
-src/data/cockpits.ts            Cockpit metadata + splat URLs (auto-written)
+src/data/cockpits.ts            Cockpit metadata + tint + splat URLs (auto-written)
 src/data/backdrops.ts           Backdrop metadata + splat URLs (auto-written)
 src/styles/                     Design tokens + HUD styles
 scripts/generate-worlds.ts      One-time world generation (--table planets|cockpits|backdrops)

@@ -136,6 +136,8 @@ export class FlightScene implements SceneSlot {
         cameraOffset: artemis.pose.cameraOffset,
         splatRotation: artemis.pose.splatRotation,
         splatScale: artemis.pose.splatScale,
+        tint: artemis.tint,
+        opacity: artemis.opacity,
       });
     }
   }

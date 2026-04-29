@@ -3,41 +3,63 @@ import { clamp, damp, Spring1D } from "../util/feel";
 /**
  * Smoothed flight input — keyboard + mouse, all routed through critically
  * damped springs (pitch/yaw/roll) and frame-rate-independent damping
- * (throttle). The output is consumed by `FlightScene.setInput` every frame.
+ * (throttle). The output is consumed by `FlightScene.setInput` /
+ * `MissionScene.setInput` every frame.
  *
- * Inputs:
- *  - Mouse delta (when pointer is locked) → yaw/pitch deltas with deadzone
- *    and exponential acceleration curve so micro-corrections feel surgical.
- *  - Arrow keys / WASD → analog accumulators that feel like a joystick.
- *  - Q / E → roll.
- *  - W / S → throttle up / down. Released keys ease back toward 1.0 (cruise).
- *  - Space → boost; charges over time, drains while held.
+ * Channels:
+ *  - **Ship steering**: arrow keys drive the ship's pitch/yaw via critically
+ *    damped springs. Q/E roll. W/S throttle. Space boost. Snapshot fields:
+ *    `pitch`, `yaw`, `roll`, `throttle`, `boost`.
+ *  - **Head-look** (independent of ship): mouse delta, when the pointer is
+ *    locked, drives `headLookYaw`/`headLookPitch` accumulators with soft
+ *    clamps (yaw ±70°, pitch ±40°). The cockpit rig consumes these to rotate
+ *    the camera ON TOP of the ship-relative pose, so the player can look
+ *    around the cabin without affecting the rocket's heading.
  *
  * Pointer lock: requested via `requestPointerLock()` (host calls on first
  * pointerdown). When unlocked, mouse input is ignored gracefully.
  */
 export interface FlightInputSnapshot {
-  pitch: number; // radians, clamped ±0.38 (~22°)
+  /** Ship pitch (radians, clamped). */
+  pitch: number;
+  /** Ship yaw (radians, clamped). */
   yaw: number;
-  roll: number; // radians, clamped ±0.61 (~35°)
-  throttle: number; // 0..2, cruise = 1
-  boost: number; // 0..1
-  boostCharge: number; // 0..1, gauge fill
+  /** Ship roll (radians, clamped). */
+  roll: number;
+  /** Throttle 0..2, cruise = 1. */
+  throttle: number;
+  /** Boost 0..1 (computed each frame from held + fuel). */
+  boost: number;
+  /** Boost gauge fill 0..1. */
+  boostCharge: number;
+  /** Whether boost is held this frame. */
   boosting: boolean;
+  /** Head-look yaw offset (radians, ±70°). Camera-only, doesn't move ship. */
+  headLookYaw: number;
+  /** Head-look pitch offset (radians, ±40°). */
+  headLookPitch: number;
 }
 
 const PITCH_LIMIT = 0.38; // radians, ~22°
 const YAW_LIMIT = 0.38;
 const ROLL_LIMIT = 0.61; // radians, ~35°
-const MOUSE_SENSITIVITY = 0.0014;
+const HEAD_YAW_LIMIT = (70 * Math.PI) / 180; // ±70°
+const HEAD_PITCH_LIMIT = (40 * Math.PI) / 180; // ±40°
+const MOUSE_SENSITIVITY = 0.0018;
 const KEY_AXIS_RATE = 0.95; // radians/sec when key is held — clamped by limit
 
 export class FlightInput {
   private element: HTMLElement;
 
+  // Ship-steering springs (driven by arrow keys + Q/E)
   private pitchSpring = new Spring1D(0, 9);
   private yawSpring = new Spring1D(0, 9);
   private rollSpring = new Spring1D(0, 7);
+
+  // Head-look springs (driven by mouse delta only)
+  private headLookYawSpring = new Spring1D(0, 11);
+  private headLookPitchSpring = new Spring1D(0, 11);
+  private headLookEnabled = true;
 
   private throttle = 1;
   private throttleTarget = 1;
@@ -57,8 +79,8 @@ export class FlightInput {
   private keySpace = false;
 
   // Pending mouse delta (consumed each frame).
-  private pendingPitch = 0;
-  private pendingYaw = 0;
+  private pendingMouseX = 0;
+  private pendingMouseY = 0;
 
   private isLocked = false;
   private active = false;
@@ -82,7 +104,7 @@ export class FlightInput {
     this.active = true;
   }
 
-  /** Stop reading input. Lock is released by host (FlightScene exit). */
+  /** Stop reading input. Lock is released by host. */
   stop(): void {
     this.active = false;
     if (this.bound) {
@@ -100,6 +122,8 @@ export class FlightInput {
     this.pitchSpring.reset(0);
     this.yawSpring.reset(0);
     this.rollSpring.reset(0);
+    this.headLookYawSpring.reset(0);
+    this.headLookPitchSpring.reset(0);
     this.throttle = 1;
     this.throttleTarget = 1;
     this.boostFuel = 1;
@@ -113,51 +137,90 @@ export class FlightInput {
     }
   }
 
+  /**
+   * Toggle head-look on/off. Off in chase / external camera modes (where
+   * mouse should drive orbit cam instead — handled by the rig).
+   */
+  setHeadLookEnabled(enabled: boolean): void {
+    if (!enabled && this.headLookEnabled) {
+      // Drop accumulator targets back to centre when disabling so the next
+      // re-enable starts looking forward, not from a stale offset.
+      this.headLookYawSpring.target = 0;
+      this.headLookPitchSpring.target = 0;
+    }
+    this.headLookEnabled = enabled;
+  }
+
   /** Drive springs + integrate analog axes from held keys. */
   step(dt: number): FlightInputSnapshot {
     if (!this.active) {
       return this.snapshot();
     }
 
-    // W/S is overloaded — when used for throttle (preferred), arrow keys
-    // handle pitch/yaw to avoid conflict. A/D currently aren't used (we
-    // could repurpose them for strafe later if free flight lands).
+    // Ship steering — arrow keys + Q/E roll.
     const keyRoll = Number(this.keyE) - Number(this.keyQ);
     const arrowPitch = Number(this.keyDown) - Number(this.keyUp);
     const arrowYaw = Number(this.keyRight) - Number(this.keyLeft);
 
-    // Build target offsets. Mouse pendings are exponential (more sensitive
-    // for small motions, faster for big ones).
-    const expoCurve = (v: number) => Math.sign(v) * Math.pow(Math.abs(v), 1.4);
     const pitchKey = arrowPitch * KEY_AXIS_RATE * dt;
     const yawKey = arrowYaw * KEY_AXIS_RATE * dt;
-    const pitchMouse = expoCurve(this.pendingPitch * MOUSE_SENSITIVITY);
-    const yawMouse = expoCurve(this.pendingYaw * MOUSE_SENSITIVITY);
 
     this.pitchSpring.target = clamp(
-      this.pitchSpring.target + pitchKey + pitchMouse,
+      this.pitchSpring.target + pitchKey,
       -PITCH_LIMIT,
       PITCH_LIMIT,
     );
     this.yawSpring.target = clamp(
-      this.yawSpring.target + yawKey + yawMouse,
+      this.yawSpring.target + yawKey,
       -YAW_LIMIT,
       YAW_LIMIT,
     );
 
-    // Auto-recenter when no input is touching the axis. Critical for "feels
-    // grounded" — without it the camera drifts forever after a small flick.
-    if (arrowPitch === 0 && Math.abs(this.pendingPitch) < 0.01) {
+    // Auto-recenter when no key is touching the axis.
+    if (arrowPitch === 0) {
       this.pitchSpring.target = damp(this.pitchSpring.target, 0, 1.6, dt);
     }
-    if (arrowYaw === 0 && Math.abs(this.pendingYaw) < 0.01) {
+    if (arrowYaw === 0) {
       this.yawSpring.target = damp(this.yawSpring.target, 0, 1.6, dt);
     }
-    this.pendingPitch = 0;
-    this.pendingYaw = 0;
 
-    // Roll: holds while keys are pressed, eases back to 0 otherwise (slower
-    // than pitch/yaw because it's more visible).
+    // Head-look — mouse delta only, independent of ship steering. Mouse Y
+    // down → look down → -rotateX (so we negate movementY).
+    if (this.headLookEnabled) {
+      const expoCurve = (v: number) =>
+        Math.sign(v) * Math.pow(Math.abs(v), 1.4);
+      const dyaw = expoCurve(this.pendingMouseX * MOUSE_SENSITIVITY);
+      const dpitch = expoCurve(this.pendingMouseY * MOUSE_SENSITIVITY);
+
+      this.headLookYawSpring.target = clamp(
+        this.headLookYawSpring.target - dyaw,
+        -HEAD_YAW_LIMIT,
+        HEAD_YAW_LIMIT,
+      );
+      this.headLookPitchSpring.target = clamp(
+        this.headLookPitchSpring.target - dpitch,
+        -HEAD_PITCH_LIMIT,
+        HEAD_PITCH_LIMIT,
+      );
+    } else {
+      // Smoothly recentre when head-look is disabled (e.g. in chase view).
+      this.headLookYawSpring.target = damp(
+        this.headLookYawSpring.target,
+        0,
+        2.5,
+        dt,
+      );
+      this.headLookPitchSpring.target = damp(
+        this.headLookPitchSpring.target,
+        0,
+        2.5,
+        dt,
+      );
+    }
+    this.pendingMouseX = 0;
+    this.pendingMouseY = 0;
+
+    // Roll holds while keys pressed, eases back to 0 otherwise.
     if (keyRoll === 0) {
       this.rollSpring.target = damp(this.rollSpring.target, 0, 2.2, dt);
     } else {
@@ -177,8 +240,7 @@ export class FlightInput {
     }
     this.throttle = damp(this.throttle, this.throttleTarget, 4.5, dt);
 
-    // Boost. Drains fuel while held, recharges when released. Visual + audio
-    // bias (set on the post fx + drone elsewhere) ride on top of `boost`.
+    // Boost: drains while held, recharges when released.
     if (this.keySpace && this.boostFuel > 0) {
       this.boostHeld = true;
       this.boostFuel = Math.max(0, this.boostFuel - dt / 4);
@@ -188,10 +250,12 @@ export class FlightInput {
     }
     const boost = this.boostHeld ? Math.min(1, this.boostFuel * 4) : 0;
 
-    // Step the springs.
+    // Step every spring.
     this.pitchSpring.step(dt);
     this.yawSpring.step(dt);
     this.rollSpring.step(dt);
+    this.headLookYawSpring.step(dt);
+    this.headLookPitchSpring.step(dt);
 
     return this.snapshot(boost);
   }
@@ -205,6 +269,8 @@ export class FlightInput {
       boost,
       boostCharge: this.boostFuel,
       boosting: this.boostHeld,
+      headLookYaw: this.headLookYawSpring.value,
+      headLookPitch: this.headLookPitchSpring.value,
     };
   }
 
@@ -221,9 +287,8 @@ export class FlightInput {
 
   private readonly onMouseMove = (e: MouseEvent): void => {
     if (!this.active || !this.isLocked) return;
-    // Mouse Y down → look down → +pitch in screen space → -rotateX in three.
-    this.pendingPitch += e.movementY;
-    this.pendingYaw += e.movementX;
+    this.pendingMouseX += e.movementX;
+    this.pendingMouseY += e.movementY;
   };
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {

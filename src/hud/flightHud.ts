@@ -3,6 +3,21 @@ import { playCue } from "../util/audio";
 import { damp } from "../util/feel";
 import type { FlightInputSnapshot } from "../scenes/FlightInput";
 
+type MissionPhaseLabel =
+  | "liftoff"
+  | "cruise"
+  | "approach"
+  | "touchdown"
+  | "landed";
+
+export interface MissionHudTelemetry {
+  phase: MissionPhaseLabel;
+  /** Altitude in km (positive above ground). */
+  altitudeKm: number;
+  /** True when reporting altitude above destination, false for Earth AGL. */
+  altitudeIsDestination: boolean;
+}
+
 interface Args {
   getProgress: () => number;
   getVelocityKmS: () => number;
@@ -15,11 +30,13 @@ interface Args {
   /** Subscribe to per-frame flight input. Returns unsubscribe fn. */
   onFlightInput?: (cb: (snap: FlightInputSnapshot) => void) => () => void;
   /** Subscribe to view-mode toggles. Returns unsubscribe fn. */
-  onViewToggle?: (cb: (mode: "cockpit" | "chase") => void) => () => void;
+  onViewToggle?: (cb: (mode: "cockpit" | "chase" | "external") => void) => () => void;
   /** Initial view mode. */
-  getViewMode?: () => "cockpit" | "chase";
+  getViewMode?: () => "cockpit" | "chase" | "external";
   /** Click-to-lock for cockpit mouse-look. */
   onLockRequest?: () => void;
+  /** Per-frame mission telemetry (phase + altitude) — optional for legacy flight. */
+  getMissionTelemetry?: () => MissionHudTelemetry;
 }
 
 /**
@@ -54,6 +71,22 @@ export function mountFlightHud(args: Args): () => void {
   const viewPill = document.getElementById("flight-view-pill");
   const viewLabel = document.getElementById("flight-view-mode-label");
 
+  // Phase strip
+  const phaseStrip = document.getElementById("phase-strip");
+  const phaseChips = phaseStrip
+    ? Array.from(phaseStrip.querySelectorAll<HTMLElement>("[data-phase]"))
+    : [];
+  const PHASE_ORDER: MissionPhaseLabel[] = [
+    "liftoff",
+    "cruise",
+    "approach",
+    "touchdown",
+  ];
+
+  // Altimeter
+  const altimeterValue = document.getElementById("altimeter-value");
+  const altimeterContext = document.getElementById("altimeter-context");
+
   // SVG path length for the boost arc — we measure once for accurate fills.
   const boostPathLen = boostFill?.getTotalLength?.() ?? 100;
 
@@ -67,6 +100,7 @@ export function mountFlightHud(args: Args): () => void {
   let lastInput: FlightInputSnapshot = {
     pitch: 0, yaw: 0, roll: 0,
     throttle: 1, boost: 0, boostCharge: 1, boosting: false,
+    headLookYaw: 0, headLookPitch: 0,
   };
 
   const observer = new MutationObserver(() => {
@@ -114,6 +148,21 @@ export function mountFlightHud(args: Args): () => void {
     // Cockpit dashboard
     updateCockpitDash();
 
+    // Mission HUD bits — phase strip + altimeter. No-op when running the
+    // legacy cinematic flight path (which doesn't pass `getMissionTelemetry`).
+    if (args.getMissionTelemetry) {
+      const t = args.getMissionTelemetry();
+      applyPhase(t.phase);
+      if (altimeterValue) {
+        altimeterValue.textContent = `${formatDistance(t.altitudeKm)}`;
+      }
+      if (altimeterContext) {
+        altimeterContext.textContent = t.altitudeIsDestination
+          ? "DEST. AGL"
+          : "EARTH AGL";
+      }
+    }
+
     if (!arrived && progress >= 1) {
       arrived = true;
       playCue("arrive");
@@ -156,9 +205,30 @@ export function mountFlightHud(args: Args): () => void {
     }
   }
 
+  // --- Phase strip wiring ---
+  function applyPhase(phase: MissionPhaseLabel): void {
+    if (!phaseStrip || phaseChips.length === 0) return;
+    phaseStrip.dataset.phase = phase;
+    const activeIdx =
+      phase === "landed"
+        ? PHASE_ORDER.length // all done
+        : PHASE_ORDER.indexOf(phase);
+    phaseChips.forEach((chip, i) => {
+      chip.classList.toggle("is-active", i === activeIdx);
+      chip.classList.toggle("is-done", i < activeIdx);
+    });
+  }
+
   // --- View mode wiring ---
-  function applyViewMode(mode: "cockpit" | "chase", instant = false): void {
-    if (viewLabel) viewLabel.textContent = mode === "cockpit" ? "COCKPIT VIEW" : "CHASE VIEW";
+  function applyViewMode(mode: "cockpit" | "chase" | "external", instant = false): void {
+    if (viewLabel) {
+      viewLabel.textContent =
+        mode === "cockpit"
+          ? "COCKPIT VIEW"
+          : mode === "chase"
+            ? "CHASE VIEW"
+            : "EXTERNAL VIEW";
+    }
     if (dashEl) dashEl.dataset.mode = mode;
     if (viewPill && !instant) {
       viewPill.classList.remove("is-flashing");

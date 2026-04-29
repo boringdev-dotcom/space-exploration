@@ -33,6 +33,15 @@ export class SurfaceScene implements SceneSlot {
   private _lastError: string | null = null;
   private lockListeners: LockListener[] = [];
 
+  /**
+   * Optional spawn pose handed in from MissionScene's touchdown. When set,
+   * the player's first-person view starts at this transform instead of the
+   * Marble scan origin. This sells "you stepped out of the rocket where it
+   * landed" without breaking the existing Marble-default spawn for users
+   * that enter the surface scene without a touchdown.
+   */
+  private pendingSpawnPose: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
+
   private moveForward = false;
   private moveBackward = false;
   private moveLeft = false;
@@ -327,7 +336,29 @@ export class SurfaceScene implements SceneSlot {
     this.lockListeners.forEach((cb) => cb(locked));
   }
 
+  /**
+   * Pre-set the player's spawn transform for the upcoming `loadPlanet`.
+   * Called by MissionScene on touchdown; consumed in `resetCameraPose`.
+   */
+  setSpawnPose(pose: { position: THREE.Vector3; quaternion: THREE.Quaternion }): void {
+    this.pendingSpawnPose = {
+      position: pose.position.clone(),
+      quaternion: pose.quaternion.clone(),
+    };
+  }
+
   private resetCameraPose(_planet: Planet): void {
+    if (this.pendingSpawnPose) {
+      // Use the touchdown pose. Camera position is the ship's cockpit
+      // location; quaternion is the ship's heading at landing. The Marble
+      // splat scan origin is still at world origin, so the player ends up
+      // standing wherever the ship landed within the splat.
+      this.camera.position.copy(this.pendingSpawnPose.position);
+      this.camera.quaternion.copy(this.pendingSpawnPose.quaternion);
+      // Clear so subsequent re-entries fall back to the default spawn.
+      this.pendingSpawnPose = null;
+      return;
+    }
     // Marble's official viewer (marble.worldlabs.ai) settles the camera at
     // (0, 1, 0) looking at (0, 1, -10) once the splat has loaded. After our
     // OpenCV→OpenGL flip on the splat (quaternion 1, 0, 0, 0 — a 180°

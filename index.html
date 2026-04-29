@@ -471,6 +471,28 @@
               <span class="view-mode-pill__hint">[ <kbd>C</kbd> ]</span>
             </div>
 
+            <!-- Mission phase strip (top, beneath the view pill) -->
+            <div class="phase-strip" id="phase-strip" data-phase="liftoff">
+              <span class="phase-strip__chip" data-phase="liftoff">LIFTOFF</span>
+              <span class="phase-strip__sep" aria-hidden="true">›</span>
+              <span class="phase-strip__chip" data-phase="cruise">CRUISE</span>
+              <span class="phase-strip__sep" aria-hidden="true">›</span>
+              <span class="phase-strip__chip" data-phase="approach">APPROACH</span>
+              <span class="phase-strip__sep" aria-hidden="true">›</span>
+              <span class="phase-strip__chip" data-phase="touchdown">TOUCHDOWN</span>
+            </div>
+
+            <!-- Altimeter (lower-left of the right column, above the eta card) -->
+            <div class="altimeter-card" id="altimeter-card">
+              <div class="hud-card__head">
+                <span class="t-label">ALTITUDE</span>
+                <span class="t-mono t-meta primary-dim" id="altimeter-context">EARTH AGL</span>
+              </div>
+              <div class="readout readout--md hud-glow">
+                <span id="altimeter-value">— km</span>
+              </div>
+            </div>
+
             <!-- Cockpit dashboard — only visible in cockpit mode. -->
             <div class="cockpit-dash" id="cockpit-dash" data-mode="cockpit">
               <div class="cockpit-dash__panel cockpit-dash__panel--left">
