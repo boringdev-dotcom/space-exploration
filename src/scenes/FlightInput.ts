@@ -43,9 +43,12 @@ export interface FlightInputSnapshot {
 const PITCH_LIMIT = 0.38; // radians, ~22°
 const YAW_LIMIT = 0.38;
 const ROLL_LIMIT = 0.61; // radians, ~35°
-const HEAD_YAW_LIMIT = (70 * Math.PI) / 180; // ±70°
-const HEAD_PITCH_LIMIT = (40 * Math.PI) / 180; // ±40°
-const MOUSE_SENSITIVITY = 0.0018;
+// Wide head-look matches Microsoft Flight Simulator's free-look feel —
+// the player can swing the camera around inside the cabin without ship
+// heading following along.
+const HEAD_YAW_LIMIT = (110 * Math.PI) / 180; // ±110°
+const HEAD_PITCH_LIMIT = (60 * Math.PI) / 180; // ±60°
+const MOUSE_SENSITIVITY = 0.0011;
 const KEY_AXIS_RATE = 0.95; // radians/sec when key is held — clamped by limit
 
 export class FlightInput {
@@ -56,9 +59,10 @@ export class FlightInput {
   private yawSpring = new Spring1D(0, 9);
   private rollSpring = new Spring1D(0, 7);
 
-  // Head-look springs (driven by mouse delta only)
-  private headLookYawSpring = new Spring1D(0, 11);
-  private headLookPitchSpring = new Spring1D(0, 11);
+  // Head-look springs (driven by mouse delta only). Slightly stiffer
+  // than the ship-steering springs so head pans feel responsive.
+  private headLookYawSpring = new Spring1D(0, 14);
+  private headLookPitchSpring = new Spring1D(0, 14);
   private headLookEnabled = true;
 
   private throttle = 1;
