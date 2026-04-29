@@ -365,6 +365,11 @@ export class SceneManager {
         onViewToggle: (cb) => this.onViewToggle(cb),
         getViewMode: () => this.getFlightViewMode(),
         onLockRequest: () => this.requestFlightPointerLock(),
+        onSkipToLanding: () => {
+          if (this.state !== "mission") return;
+          playCue("click");
+          this.mission.skipToLanding();
+        },
         getMissionTelemetry: () => {
           const t = this.mission.getTelemetry();
           // Switch the altimeter to "destination AGL" once we're inside
