@@ -411,11 +411,13 @@ export class MissionScene implements SceneSlot {
     this.updateSurfaceFade(deltaSec);
 
     // Camera shake amplitude per phase (pre-cached `feel` to avoid double
-    // call). Throttle here is autopilot-driven, so use the dynamic
-    // throttle the rig is rendering with rather than the (now-ignored)
-    // player input.
+    // call). Inside the cockpit (camera = pilot's head) we kill shake
+    // entirely so the player doesn't get motion-sick — only the chase
+    // and external cameras vibrate with the engines.
     const feel = this.phaseController.feel();
-    const shakeAmp = 0.022 * feel.shakeScale * this.autopilotThrottle;
+    const exteriorWeight = 1 - this.rig.cockpitWeight;
+    const shakeAmp =
+      0.022 * feel.shakeScale * this.autopilotThrottle * exteriorWeight;
     this.computeShake(elapsedSec, shakeAmp, this._scratchShake);
     this.rig.setExtraShake(this._scratchShake);
     this.rig.setThrottle(this.autopilotThrottle, 0);
