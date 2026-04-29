@@ -362,14 +362,9 @@ export class SceneManager {
     // meaningful in continuous flight, so they're stubbed.
     this.hudCleanups.push(
       mountFlightHud({
-        getProgress: () => this.missionProgress(),
         getVelocityKmS: () => this.mission.getTelemetry().speedKmS,
-        getEtaSec: () => 0,
-        getHeading: () => this.mission.getTelemetry().shipYawDeg,
         getDistanceKm: () => this.mission.getTelemetry().rangeKm,
         getTarget: () => this.selectedPlanet,
-        onArrive: () => {},
-        onSkip: () => {},
         onFlightInput: (cb) => this.onFlightInput(cb),
         onViewToggle: (cb) => this.onViewToggle(cb),
         getViewMode: () => this.getFlightViewMode(),
@@ -408,6 +403,13 @@ export class SceneManager {
     document.querySelectorAll<HTMLElement>(".hud-screen").forEach((el) => {
       el.classList.toggle("is-active", el.id === target);
     });
+
+    // Tag #hud-root with the active screen so global decorations
+    // (scanlines / vignette) can be suppressed in flight mode.
+    const hudRoot = document.getElementById("hud-root");
+    if (hudRoot) {
+      hudRoot.dataset.screen = SIDE_NAV_BY_STATE[this.state];
+    }
 
     const sideTarget = SIDE_NAV_BY_STATE[this.state];
     document.querySelectorAll<HTMLElement>(".side-link").forEach((el) => {
@@ -517,30 +519,6 @@ export class SceneManager {
   pickPlanet(id: string): void {
     this.selectedPlanet = getPlanet(id);
     this.setState("mission");
-  }
-
-  /**
-   * Mission "progress" 0..1 for the legacy flight HUD progress bar. We
-   * derive a rough liftoff→cruise→approach→touchdown completion number
-   * from the phase + range so the existing chrome reads the journey.
-   */
-  private missionProgress(): number {
-    const t = this.mission.getTelemetry();
-    switch (t.phase) {
-      case "liftoff":
-        return Math.max(0, Math.min(0.1, t.altitudeKm / 8000));
-      case "cruise": {
-        // Rough: rangeKm / 500000 (5000 units * 100 km/unit) inverted.
-        const total = 500_000;
-        return 0.1 + 0.7 * (1 - Math.max(0, Math.min(1, t.rangeKm / total)));
-      }
-      case "approach":
-        return 0.8;
-      case "touchdown":
-        return 0.95;
-      case "landed":
-        return 1;
-    }
   }
 
   /** Snapshot used by the on-screen debug HUD. */
