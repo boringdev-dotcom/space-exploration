@@ -31,6 +31,8 @@ interface Args {
   onLockRequest?: () => void;
   /** Per-frame mission telemetry (phase + altitude). */
   getMissionTelemetry: () => MissionHudTelemetry;
+  /** Player clicked "Skip to Landing". */
+  onSkipToLanding?: () => void;
 }
 
 /**
@@ -168,10 +170,21 @@ export function mountFlightHud(args: Args): () => void {
   };
   screen?.addEventListener("click", requestLock);
 
+  // Skip-to-landing button.
+  const skipBtn = document.getElementById(
+    "flight-skip-btn",
+  ) as HTMLButtonElement | null;
+  const onSkipClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    args.onSkipToLanding?.();
+  };
+  skipBtn?.addEventListener("click", onSkipClick);
+
   return () => {
     cancelAnimationFrame(raf);
     observer.disconnect();
     screen?.removeEventListener("click", requestLock);
+    skipBtn?.removeEventListener("click", onSkipClick);
     unsubInput();
     unsubViewToggle();
   };

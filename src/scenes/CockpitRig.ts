@@ -183,6 +183,17 @@ export class CockpitRig {
     return this._viewMode;
   }
 
+  /**
+   * Current 0..1 weight of the cockpit profile in the active crossfade.
+   * 1 = fully in cockpit, 0 = fully in chase/external. Hosts use this to
+   * suppress effects (e.g. camera shake) that should not fire when the
+   * camera is the pilot's head.
+   */
+  get cockpitWeight(): number {
+    const tBlend = easeInOutCubic(this.viewT);
+    return this.viewModeWeight("cockpit", tBlend);
+  }
+
   /** Cycle cockpit → chase → external → cockpit. */
   toggleView(): void {
     const next: Record<ViewMode, ViewMode> = {
@@ -332,12 +343,20 @@ export class CockpitRig {
     // Legacy 0..1 chase blend retained for callers reading the field.
     this.viewBlend = chaseWeight + externalWeight;
 
-    const swayAmp = 0.012 + 0.03 * chaseWeight + 0.05 * externalWeight;
-    this._idleSwayPos.set(
-      noise1D(elapsed * 0.6, 1.7) * swayAmp,
-      noise1D(elapsed * 0.5, 4.2) * swayAmp * 0.7,
-      noise1D(elapsed * 0.4, 7.3) * swayAmp * 0.5,
-    );
+    // Idle hand-held sway is reserved for the OUTSIDE views — chase and
+    // external — where the cinematic parallax sells "camera operator
+    // following the ship". Inside the cockpit the camera is the pilot's
+    // head, which should be rock-steady so the player doesn't get sick.
+    const swayAmp = 0.025 * chaseWeight + 0.04 * externalWeight;
+    if (swayAmp > 0.0001) {
+      this._idleSwayPos.set(
+        noise1D(elapsed * 0.6, 1.7) * swayAmp,
+        noise1D(elapsed * 0.5, 4.2) * swayAmp * 0.7,
+        noise1D(elapsed * 0.4, 7.3) * swayAmp * 0.5,
+      );
+    } else {
+      this._idleSwayPos.set(0, 0, 0);
+    }
 
     // Track mouse quiet periods so the external cam can re-anchor on idle.
     const headLookDelta =
