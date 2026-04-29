@@ -37,9 +37,9 @@ const COCKPIT_OFFSET = new THREE.Vector3(0, 0.0, 0.0);
 // offset would push the camera below ground. The chase camera is also
 // biased SIDEWAYS so the engine plume doesn't fire directly at the lens
 // (which used to blow out the bloom and wash the frame to white).
-const CHASE_BACK = 2.6;
-const CHASE_UP_WORLD = 1.8;
-const CHASE_SIDE = 1.2;
+const CHASE_BACK = 2.2;
+const CHASE_UP_WORLD = 1.0;
+const CHASE_SIDE = 0.8;
 const EXTERNAL_ANCHOR_BACK = 2.4;
 const EXTERNAL_ANCHOR_UP_WORLD = 2.0;
 /** Seconds of no mouse motion before the external cam re-anchors behind. */
@@ -515,11 +515,9 @@ export class CockpitRig {
           .add(back)
           .add(sideOffset)
           .add(_scratchExternalOffset.set(0, CHASE_UP_WORLD, 0));
-        // Look at the ship centre with a slight downward bias.
-        outLook
-          .set(0, -0.4, 0)
-          .applyQuaternion(ship.quaternion)
-          .add(ship.position);
+        // Look at the ship centre directly so the rocket sits in the
+        // visual centre of the chase view.
+        outLook.copy(ship.position);
       } else {
         outPos.copy(this.root.position);
         outLook.set(0, -0.4, 0);
