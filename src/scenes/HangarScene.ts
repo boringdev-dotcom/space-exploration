@@ -1,11 +1,21 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
+import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
 
 import type { SceneSlot } from "./Scene";
 import { createStarfield } from "../util/starfield";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
+import { BACKDROPS } from "../data/backdrops";
 
 const ROCKET_MODEL_URL = "/models/rockets/artemis_ii_-_space_launch_system_sls.glb";
+
+/**
+ * URL prefix for the Spark public mock splats. We refuse to load these in the
+ * hangar to avoid showing a butterfly behind the rocket; the procedural
+ * starfield + lighted pad takes over until a real Marble backdrop is
+ * generated via `npm run backdrops:generate`.
+ */
+const MOCK_SPLAT_PREFIX = "https://sparkjs.dev/";
 
 export class HangarScene implements SceneSlot {
   readonly scene = new THREE.Scene();
@@ -23,7 +33,11 @@ export class HangarScene implements SceneSlot {
   private idleTimerSec = 0;
   private interacted = false;
 
-  constructor(domElement: HTMLElement) {
+  private readonly spark: SparkRenderer | null;
+  private backdropSplat: SplatMesh | null = null;
+
+  constructor(domElement: HTMLElement, spark?: SparkRenderer) {
+    this.spark = spark ?? null;
     this.camera = new THREE.PerspectiveCamera(
       42,
       window.innerWidth / window.innerHeight,
@@ -97,10 +111,19 @@ export class HangarScene implements SceneSlot {
     if (!this.rocket && !this.loadStarted) {
       void this.loadRocket();
     }
+    if (this.spark && this.backdropSplat && this.spark.parent !== this.scene) {
+      this.scene.add(this.spark);
+    }
+    if (!this.backdropSplat) {
+      void this.maybeLoadBackdrop();
+    }
   }
 
   exit(): void {
     this.controls.enabled = false;
+    if (this.spark && this.spark.parent === this.scene) {
+      this.scene.remove(this.spark);
+    }
   }
 
   update(deltaSec: number, elapsedSec: number): void {
@@ -129,6 +152,11 @@ export class HangarScene implements SceneSlot {
   dispose(): void {
     this.disposed = true;
     this.controls.dispose();
+    if (this.backdropSplat) {
+      this.scene.remove(this.backdropSplat);
+      this.backdropSplat.dispose?.();
+      this.backdropSplat = null;
+    }
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       mesh.geometry?.dispose?.();
@@ -139,6 +167,40 @@ export class HangarScene implements SceneSlot {
         material?.dispose?.();
       }
     });
+  }
+
+  /**
+   * Try to load the hangar Marble backdrop. Skipped silently when the URL
+   * still points at the public Spark mock (a butterfly), so the procedural
+   * pad/lighting setup stays untouched until a real world is generated.
+   */
+  private async maybeLoadBackdrop(): Promise<void> {
+    if (!this.spark || this.backdropSplat) return;
+    const backdrop = BACKDROPS.find((b) => b.id === "hangarBay");
+    if (!backdrop) return;
+    if (backdrop.splatUrl.startsWith(MOCK_SPLAT_PREFIX)) return;
+    try {
+      const splat = new SplatMesh({ url: backdrop.splatUrl });
+      splat.quaternion.set(1, 0, 0, 0);
+      splat.position.set(...backdrop.pose.position);
+      splat.scale.setScalar(backdrop.pose.scale);
+      // Render behind the rocket and pad: lower renderOrder than other ops.
+      splat.renderOrder = -1;
+      await splat.initialized;
+      if (this.disposed) {
+        splat.dispose?.();
+        return;
+      }
+      this.backdropSplat = splat;
+      this.scene.add(splat);
+      // Once a real backdrop is present, soften the procedural starfield so
+      // we don't double-up cosmic content inside the bay.
+      const starMat = this.starfield.material as THREE.PointsMaterial;
+      starMat.opacity = 0.35;
+      starMat.transparent = true;
+    } catch (err) {
+      console.warn("[HangarScene] backdrop splat failed to load", err);
+    }
   }
 
   private async loadRocket(): Promise<void> {

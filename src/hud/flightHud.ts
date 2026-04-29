@@ -1,5 +1,7 @@
 import type { Planet } from "../data/planets";
 import { playCue } from "../util/audio";
+import { damp } from "../util/feel";
+import type { FlightInputSnapshot } from "../scenes/FlightInput";
 
 interface Args {
   getProgress: () => number;
@@ -10,11 +12,20 @@ interface Args {
   getTarget: () => Planet | null;
   onArrive: () => void;
   onSkip: () => void;
+  /** Subscribe to per-frame flight input. Returns unsubscribe fn. */
+  onFlightInput?: (cb: (snap: FlightInputSnapshot) => void) => () => void;
+  /** Subscribe to view-mode toggles. Returns unsubscribe fn. */
+  onViewToggle?: (cb: (mode: "cockpit" | "chase") => void) => () => void;
+  /** Initial view mode. */
+  getViewMode?: () => "cockpit" | "chase";
+  /** Click-to-lock for cockpit mouse-look. */
+  onLockRequest?: () => void;
 }
 
 /**
- * Drives the IN-FLIGHT NAVIGATION HUD: compass needle, velocity readout,
- * progress bar, ETA. Polls scene-side telemetry every animation frame.
+ * Drives the in-flight HUD: telemetry readouts, cockpit dashboard, and the
+ * view-mode badge. Polls scene-side telemetry every animation frame and
+ * smooths the displayed values via `damp` so digits roll instead of flicker.
  */
 export function mountFlightHud(args: Args): () => void {
   const targetName = document.getElementById("flight-target-name");
@@ -28,9 +39,35 @@ export function mountFlightHud(args: Args): () => void {
   const skipBtn = document.getElementById("flight-skip-btn") as HTMLButtonElement | null;
   const screen = document.getElementById("screen-flight");
 
+  // Cockpit dashboard nodes
+  const dashEl = document.getElementById("cockpit-dash");
+  const throttleFill = document.getElementById("cockpit-throttle-fill");
+  const throttleNeedle = document.getElementById("cockpit-throttle-needle");
+  const throttleVal = document.getElementById("cockpit-throttle-val");
+  const boostFill = document.getElementById("cockpit-boost-fill") as
+    | (SVGPathElement & { dataset: DOMStringMap })
+    | null;
+  const boostVal = document.getElementById("cockpit-boost-val");
+  const attitudeHorizon = document.getElementById("cockpit-attitude-horizon");
+
+  // View-mode pill
+  const viewPill = document.getElementById("flight-view-pill");
+  const viewLabel = document.getElementById("flight-view-mode-label");
+
+  // SVG path length for the boost arc — we measure once for accurate fills.
+  const boostPathLen = boostFill?.getTotalLength?.() ?? 100;
+
   let raf = 0;
+  let lastTime = 0;
   let lastTarget: Planet | null = null;
   let arrived = false;
+
+  // Smoothed display values — updated each frame from scene telemetry.
+  let displayVelocity = 0;
+  let lastInput: FlightInputSnapshot = {
+    pitch: 0, yaw: 0, roll: 0,
+    throttle: 1, boost: 0, boostCharge: 1, boosting: false,
+  };
 
   const observer = new MutationObserver(() => {
     if (!screen) return;
@@ -39,24 +76,33 @@ export function mountFlightHud(args: Args): () => void {
       arrived = false;
       lastTarget = args.getTarget();
       if (targetName && lastTarget) targetName.textContent = lastTarget.name.toUpperCase();
+      lastTime = 0;
       raf = requestAnimationFrame(loop);
+      // Initial view-mode badge.
+      applyViewMode(args.getViewMode?.() ?? "cockpit", true);
     } else {
       cancelAnimationFrame(raf);
     }
   });
   if (screen) observer.observe(screen, { attributes: true, attributeFilter: ["class"] });
 
-  function loop(): void {
+  function loop(timeMs: number): void {
+    const last = lastTime || timeMs;
+    const dt = Math.min(0.1, (timeMs - last) / 1000);
+    lastTime = timeMs;
+
     const progress = args.getProgress();
     const velocity = args.getVelocityKmS();
     const eta = args.getEtaSec();
     const heading = args.getHeading();
     const distance = args.getDistanceKm();
 
-    if (velocityEl) velocityEl.textContent = velocity.toFixed(3).padStart(6, "0");
+    // Smooth velocity readout — no more raw-value flicker.
+    displayVelocity = damp(displayVelocity, velocity, 5, dt);
+
+    if (velocityEl) velocityEl.textContent = displayVelocity.toFixed(3).padStart(6, "0");
     if (velocityBar) {
-      // Map velocity onto 7-segment scale (0..escapeV ≈ 14 km/s).
-      const segments = Math.max(1, Math.min(7, Math.round((velocity / 14) * 7)));
+      const segments = Math.max(1, Math.min(7, Math.round((displayVelocity / 14) * 7)));
       velocityBar.dataset.fill = String(segments);
     }
     if (etaEl) etaEl.textContent = formatEta(eta);
@@ -64,6 +110,9 @@ export function mountFlightHud(args: Args): () => void {
     if (needleEl) needleEl.style.transform = `translateX(-50%) rotate(${heading}deg)`;
     if (distanceEl) distanceEl.textContent = `${formatDistance(distance)} remaining`;
     if (progressEl) progressEl.style.right = `${(1 - progress) * 100}%`;
+
+    // Cockpit dashboard
+    updateCockpitDash();
 
     if (!arrived && progress >= 1) {
       arrived = true;
@@ -74,16 +123,81 @@ export function mountFlightHud(args: Args): () => void {
     raf = requestAnimationFrame(loop);
   }
 
+  function updateCockpitDash(): void {
+    // Throttle: gauge runs 0..2; midpoint = 1.0 (cruise).
+    const throttle = lastInput.throttle;
+    const heightPct = Math.max(0, Math.min(100, (throttle / 2) * 100));
+    if (throttleFill) throttleFill.style.height = `${heightPct}%`;
+    if (throttleNeedle) throttleNeedle.style.bottom = `${heightPct}%`;
+    if (throttleVal) {
+      throttleVal.textContent = `${Math.round(throttle * 100)}%`;
+    }
+
+    // Boost: arc from 0..1.
+    if (boostFill) {
+      const charge = Math.max(0, Math.min(1, lastInput.boostCharge));
+      const offset = boostPathLen * (1 - charge);
+      boostFill.style.strokeDasharray = `${boostPathLen} ${boostPathLen}`;
+      boostFill.style.strokeDashoffset = `${offset}`;
+      boostFill.classList.toggle("is-low", charge < 0.2);
+    }
+    if (boostVal) {
+      boostVal.textContent = `${Math.round(lastInput.boostCharge * 100)}%`;
+    }
+
+    // Attitude: rotate horizon by roll, translate by pitch (tunable scale).
+    if (attitudeHorizon) {
+      const rollDeg = (lastInput.roll * 180) / Math.PI;
+      const pitchPx = Math.max(-30, Math.min(30, (lastInput.pitch * 180) / Math.PI));
+      attitudeHorizon.setAttribute(
+        "transform",
+        `translate(0 ${pitchPx}) rotate(${rollDeg})`,
+      );
+    }
+  }
+
+  // --- View mode wiring ---
+  function applyViewMode(mode: "cockpit" | "chase", instant = false): void {
+    if (viewLabel) viewLabel.textContent = mode === "cockpit" ? "COCKPIT VIEW" : "CHASE VIEW";
+    if (dashEl) dashEl.dataset.mode = mode;
+    if (viewPill && !instant) {
+      viewPill.classList.remove("is-flashing");
+      void viewPill.offsetWidth; // force reflow to retrigger animation
+      viewPill.classList.add("is-flashing");
+    }
+  }
+
+  const unsubInput =
+    args.onFlightInput?.((snap) => {
+      lastInput = snap;
+    }) ?? (() => {});
+
+  const unsubViewToggle =
+    args.onViewToggle?.((mode) => {
+      applyViewMode(mode);
+    }) ?? (() => {});
+
   const skip = (): void => {
     playCue("click");
     args.onSkip();
   };
   skipBtn?.addEventListener("click", skip);
 
+  // First click anywhere on the flight screen → request pointer lock so
+  // mouse-look becomes available. Locking is opt-in.
+  const requestLock = (e: Event): void => {
+    if (e.target instanceof HTMLButtonElement) return;
+    args.onLockRequest?.();
+  };
+  screen?.addEventListener("click", requestLock);
+
   return () => {
     cancelAnimationFrame(raf);
     observer.disconnect();
     skipBtn?.removeEventListener("click", skip);
+    screen?.removeEventListener("click", requestLock);
+    unsubInput();
+    unsubViewToggle();
   };
 }
 

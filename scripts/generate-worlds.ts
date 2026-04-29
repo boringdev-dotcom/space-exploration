@@ -1,12 +1,14 @@
 /**
  * One-time generator that calls the World Labs Marble API to produce
- * a Gaussian-splat world per destination, then rewrites
- * `src/data/planets.ts` with the resulting SPZ URLs.
+ * a Gaussian-splat world per record in one of three tables, then rewrites
+ * the corresponding data file with the resulting SPZ URLs.
  *
  * Usage:
- *   tsx scripts/generate-worlds.ts             # uses WLT_API_KEY from .env.local
- *   tsx scripts/generate-worlds.ts --mock      # seeds public Spark sample SPZs
- *   tsx scripts/generate-worlds.ts --only luna # generate one planet
+ *   tsx scripts/generate-worlds.ts                       # planets (default)
+ *   tsx scripts/generate-worlds.ts --table cockpits      # interior cockpits
+ *   tsx scripts/generate-worlds.ts --table backdrops     # static backdrops
+ *   tsx scripts/generate-worlds.ts --mock                # seed Spark sample SPZs
+ *   tsx scripts/generate-worlds.ts --only luna           # generate one record
  *
  * API reference: https://docs.worldlabs.ai/api
  */
@@ -16,32 +18,67 @@ import { existsSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { PLANETS, type Planet } from "../src/data/planets.ts";
+import { PLANETS } from "../src/data/planets.ts";
+import { COCKPITS } from "../src/data/cockpits.ts";
+import { BACKDROPS } from "../src/data/backdrops.ts";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
-const PLANETS_PATH = resolve(ROOT, "src/data/planets.ts");
 const ENV_LOCAL = resolve(ROOT, ".env");
 
 const API_BASE = "https://api.worldlabs.ai/marble/v1";
 const POLL_INTERVAL_MS = 15_000;
 const POLL_TIMEOUT_MS = 30 * 60 * 1000;
-const MODEL = "marble-1.1 plus";
+const MODEL = "marble-1.1";
 
-/**
- * Public Spark sample splats — used by --mock to give us something
- * runnable end-to-end before any API key is provisioned.
- */
-const MOCK_SPLATS: Record<string, string> = {
-  luna: "https://sparkjs.dev/assets/splats/butterfly.spz",
-  mars: "https://sparkjs.dev/assets/splats/butterfly.spz",
-  europa: "https://sparkjs.dev/assets/splats/butterfly.spz",
-  titan: "https://sparkjs.dev/assets/splats/butterfly.spz",
+/** Public Spark sample splat used by --mock to populate every record. */
+const MOCK_SPLAT = "https://sparkjs.dev/assets/splats/butterfly.spz";
+
+type TableName = "planets" | "cockpits" | "backdrops";
+
+interface Record {
+  id: string;
+  name: string;
+  prompt: string;
+  splatUrl: string;
+}
+
+interface TableSpec {
+  name: TableName;
+  records: Record[];
+  filePath: string;
+  /** Display label for log lines. */
+  label: string;
+}
+
+const TABLES: Record_<TableName, TableSpec> = {
+  planets: {
+    name: "planets",
+    records: PLANETS as Record[],
+    filePath: resolve(ROOT, "src/data/planets.ts"),
+    label: "Planet",
+  },
+  cockpits: {
+    name: "cockpits",
+    records: COCKPITS as Record[],
+    filePath: resolve(ROOT, "src/data/cockpits.ts"),
+    label: "Cockpit",
+  },
+  backdrops: {
+    name: "backdrops",
+    records: BACKDROPS as Record[],
+    filePath: resolve(ROOT, "src/data/backdrops.ts"),
+    label: "Backdrop",
+  },
 };
+
+// `Record` is shadowed above for our domain; alias the TS built-in.
+type Record_<K extends string, V> = { [P in K]: V };
 
 interface Args {
   mock: boolean;
   only?: string;
+  table: TableName;
 }
 
 interface MarbleOperation {
@@ -70,7 +107,12 @@ function parseArgs(): Args {
   const mock = args.includes("--mock");
   const onlyIdx = args.indexOf("--only");
   const only = onlyIdx >= 0 ? args[onlyIdx + 1] : undefined;
-  return { mock, only };
+  const tableIdx = args.indexOf("--table");
+  const table = (tableIdx >= 0 ? args[tableIdx + 1] : "planets") as TableName;
+  if (!["planets", "cockpits", "backdrops"].includes(table)) {
+    throw new Error(`Unknown --table value: ${table}`);
+  }
+  return { mock, only, table };
 }
 
 async function loadEnv(): Promise<void> {
@@ -87,7 +129,7 @@ async function loadEnv(): Promise<void> {
   }
 }
 
-async function startWorldGen(planet: Planet, apiKey: string): Promise<string> {
+async function startWorldGen(record: Record, apiKey: string, label: string): Promise<string> {
   const res = await fetch(`${API_BASE}/worlds:generate`, {
     method: "POST",
     headers: {
@@ -95,11 +137,11 @@ async function startWorldGen(planet: Planet, apiKey: string): Promise<string> {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      display_name: `Spark Odyssey · ${planet.name}`,
+      display_name: `Spark Odyssey · ${label} · ${record.name}`,
       model: MODEL,
       world_prompt: {
         type: "text",
-        text_prompt: planet.prompt,
+        text_prompt: record.prompt,
       },
     }),
   });
@@ -107,13 +149,13 @@ async function startWorldGen(planet: Planet, apiKey: string): Promise<string> {
   if (!res.ok) {
     const body = await res.text();
     throw new Error(
-      `[${planet.id}] Marble generate failed (${res.status}): ${body}`,
+      `[${record.id}] Marble generate failed (${res.status}): ${body}`,
     );
   }
 
   const data = (await res.json()) as MarbleGenerateResponse;
   if (!data.operation_id) {
-    throw new Error(`[${planet.id}] Missing operation_id in response`);
+    throw new Error(`[${record.id}] Missing operation_id in response`);
   }
   return data.operation_id;
 }
@@ -121,7 +163,7 @@ async function startWorldGen(planet: Planet, apiKey: string): Promise<string> {
 async function pollOperation(
   operationId: string,
   apiKey: string,
-  planetId: string,
+  recordId: string,
 ): Promise<MarbleOperation> {
   const start = Date.now();
   let attempt = 0;
@@ -134,21 +176,21 @@ async function pollOperation(
     if (!res.ok) {
       const body = await res.text();
       throw new Error(
-        `[${planetId}] poll failed (${res.status}): ${body}`,
+        `[${recordId}] poll failed (${res.status}): ${body}`,
       );
     }
     const op = (await res.json()) as MarbleOperation;
 
     const elapsed = ((Date.now() - start) / 1000).toFixed(0);
     if (op.done) {
-      console.log(`  [${planetId}] done after ${elapsed}s (${attempt} polls)`);
+      console.log(`  [${recordId}] done after ${elapsed}s (${attempt} polls)`);
       return op;
     }
-    console.log(`  [${planetId}] still generating… ${elapsed}s elapsed`);
+    console.log(`  [${recordId}] still generating… ${elapsed}s elapsed`);
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }
 
-  throw new Error(`[${planetId}] timed out waiting for world generation`);
+  throw new Error(`[${recordId}] timed out waiting for world generation`);
 }
 
 function pickSplatUrl(op: MarbleOperation): string {
@@ -157,77 +199,82 @@ function pickSplatUrl(op: MarbleOperation): string {
   return urls.full_res ?? urls["500k"] ?? urls["100k"] ?? "";
 }
 
-async function rewritePlanetsFile(updates: Record<string, string>): Promise<void> {
-  const original = await readFile(PLANETS_PATH, "utf8");
+async function rewriteSplatUrls(
+  filePath: string,
+  updates: Record_<string, string>,
+): Promise<void> {
+  const original = await readFile(filePath, "utf8");
 
   let result = original;
   for (const [id, url] of Object.entries(updates)) {
-    // Find the planet block and replace its splatUrl line.
-    const planetBlockRe = new RegExp(
+    const blockRe = new RegExp(
       String.raw`(id:\s*"${id}"[\s\S]*?splatUrl:\s*)"[^"]*"`,
       "m",
     );
-    if (!planetBlockRe.test(result)) {
+    if (!blockRe.test(result)) {
       console.warn(`Could not find splatUrl for ${id}; skipping rewrite.`);
       continue;
     }
-    result = result.replace(planetBlockRe, `$1"${url}"`);
+    result = result.replace(blockRe, `$1"${url}"`);
   }
 
-  await writeFile(PLANETS_PATH, result, "utf8");
-  console.log(`✓ Wrote ${Object.keys(updates).length} URLs to src/data/planets.ts`);
+  await writeFile(filePath, result, "utf8");
+  console.log(
+    `✓ Wrote ${Object.keys(updates).length} URL(s) to ${filePath.replace(ROOT + "/", "")}`,
+  );
 }
 
 async function main(): Promise<void> {
   await loadEnv();
-  const { mock, only } = parseArgs();
+  const { mock, only, table } = parseArgs();
+  const spec = TABLES[table];
+  if (!spec) throw new Error(`Unknown table: ${table}`);
 
   const targets = only
-    ? PLANETS.filter((p) => p.id === only)
-    : PLANETS;
+    ? spec.records.filter((p) => p.id === only)
+    : spec.records;
   if (targets.length === 0) {
-    throw new Error(`No planets matched --only=${only ?? ""}`);
+    throw new Error(`No ${spec.label.toLowerCase()}s matched --only=${only ?? ""}`);
   }
 
   if (mock) {
-    console.log("Mock mode: seeding public Spark sample SPZs.\n");
-    const updates: Record<string, string> = {};
+    console.log(`Mock mode: seeding public Spark sample SPZs (${spec.name}).\n`);
+    const updates: Record_<string, string> = {};
     for (const p of targets) {
-      const url = MOCK_SPLATS[p.id] ?? MOCK_SPLATS.luna;
-      updates[p.id] = url;
-      console.log(`  ${p.id} -> ${url}`);
+      updates[p.id] = MOCK_SPLAT;
+      console.log(`  ${p.id} -> ${MOCK_SPLAT}`);
     }
-    await rewritePlanetsFile(updates);
+    await rewriteSplatUrls(spec.filePath, updates);
     return;
   }
 
   const apiKey = process.env.WLT_API_KEY;
   if (!apiKey) {
     console.error(
-      "WLT_API_KEY missing. Add it to .env.local or run with --mock.",
+      "WLT_API_KEY missing. Add it to .env / .env.local or run with --mock.",
     );
     process.exit(1);
   }
 
   console.log(
-    `Generating ${targets.length} world(s) with model ${MODEL}.\n` +
+    `Generating ${targets.length} ${spec.label.toLowerCase()} world(s) with model ${MODEL}.\n` +
       "Each world takes ~5 minutes. Be patient.\n",
   );
 
-  const updates: Record<string, string> = {};
-  for (const planet of targets) {
-    console.log(`→ ${planet.name} (${planet.id})`);
+  const updates: Record_<string, string> = {};
+  for (const record of targets) {
+    console.log(`→ ${record.name} (${record.id})`);
     try {
-      const opId = await startWorldGen(planet, apiKey);
+      const opId = await startWorldGen(record, apiKey, spec.label);
       console.log(`  operation_id: ${opId}`);
-      const op = await pollOperation(opId, apiKey, planet.id);
+      const op = await pollOperation(opId, apiKey, record.id);
       if (op.error) {
         throw new Error(
           `Marble error: ${op.error.message ?? JSON.stringify(op.error)}`,
         );
       }
       const url = pickSplatUrl(op);
-      updates[planet.id] = url;
+      updates[record.id] = url;
       console.log(`  splat URL: ${url}\n`);
     } catch (err) {
       console.error(`  ✗ ${(err as Error).message}\n`);
@@ -235,7 +282,7 @@ async function main(): Promise<void> {
   }
 
   if (Object.keys(updates).length > 0) {
-    await rewritePlanetsFile(updates);
+    await rewriteSplatUrls(spec.filePath, updates);
   } else {
     console.log("No worlds generated successfully.");
     process.exit(1);

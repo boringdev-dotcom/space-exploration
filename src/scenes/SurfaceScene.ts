@@ -92,12 +92,9 @@ export class SurfaceScene implements SceneSlot {
     this.camera.position.set(0, this.eyeHeight, 0);
     this.scene.add(this.camera);
 
-    // Spark goes straight on the scene — same as the official Spark viewer
-    // and the gaussian-splat-character-controller reference. The previous
-    // localFrame wrapper was a WebXR-only trick (lifted from the time-travel
-    // viewer) and it ends up shifting Spark's view origin away from the
-    // camera, which is what made the start pose look "somewhere random".
-    this.scene.add(this.spark);
+    // Spark is added on enter() / removed on exit() because the same
+    // SparkRenderer is shared with FlightScene (cockpit splat) and only one
+    // scene can own it at a time.
 
     // No additional lighting or fog: Marble worlds bake their own lighting
     // and atmospheric haze into the splat colours. Adding scene lights or fog
@@ -114,11 +111,16 @@ export class SurfaceScene implements SceneSlot {
     window.addEventListener("keyup", this.onKeyUp);
   }
 
-  enter(): void {}
+  enter(): void {
+    if (this.spark.parent !== this.scene) this.scene.add(this.spark);
+  }
 
   exit(): void {
     if (this.controls.isLocked) {
       this.controls.unlock();
+    }
+    if (this.spark.parent === this.scene) {
+      this.scene.remove(this.spark);
     }
   }
 

@@ -2680,3 +2680,347 @@
 .alignment-debug__marker--reticle {
   color: var(--primary-fixed-dim);
 }
+
+/* =====================================================================
+ * Cockpit dashboard — only visible when the flight is in cockpit view.
+ * Lives inside #screen-flight; absolute-positioned overlays at the bottom
+ * of the viewport to read like instruments mounted on a dashboard.
+ * ===================================================================== */
+
+.cockpit-dash {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 28px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: end;
+  gap: 28px;
+  padding: 0 56px;
+  pointer-events: none;
+  z-index: 6;
+  transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+}
+
+.cockpit-dash[data-mode="chase"] {
+  opacity: 0;
+  transform: translateY(14px);
+}
+
+.cockpit-dash__panel {
+  position: relative;
+  padding: 14px 18px 16px;
+  border: var(--glass-border);
+  background: var(--glass-bg);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-lg);
+  box-shadow:
+    inset 0 0 0 1px rgba(76, 214, 255, 0.08),
+    0 18px 40px rgba(2, 4, 8, 0.55);
+}
+
+.cockpit-dash__panel--left {
+  justify-self: start;
+  width: min(280px, 30vw);
+}
+
+.cockpit-dash__panel--right {
+  justify-self: end;
+  width: min(220px, 24vw);
+}
+
+.cockpit-dash__panel--center {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
+}
+
+.cockpit-dash__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.cockpit-dash__hint {
+  margin-top: 10px;
+  text-align: right;
+  font-family: var(--font-mono);
+  letter-spacing: var(--letter-caps);
+  opacity: 0.6;
+}
+
+/* Throttle — vertical fill bar with cruise-tick at 50% (since target=1 of 2) */
+.cockpit-throttle {
+  display: flex;
+  align-items: stretch;
+  gap: 12px;
+  height: 90px;
+}
+
+.cockpit-throttle__track {
+  position: relative;
+  flex: 1;
+  background:
+    linear-gradient(
+      to top,
+      rgba(255, 182, 147, 0.08),
+      rgba(76, 214, 255, 0.06)
+    );
+  border: 1px solid rgba(76, 214, 255, 0.25);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.cockpit-throttle__cruise {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 50%;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.cockpit-throttle__cruise::before {
+  content: "CRUISE";
+  position: absolute;
+  right: 6px;
+  bottom: 2px;
+  font-family: var(--font-mono);
+  font-size: 8px;
+  letter-spacing: var(--letter-caps);
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.cockpit-throttle__fill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 50%;
+  background: linear-gradient(
+    to top,
+    rgba(76, 214, 255, 0.65),
+    rgba(217, 245, 255, 0.95)
+  );
+  box-shadow:
+    0 0 18px rgba(76, 214, 255, 0.55),
+    inset 0 0 8px rgba(217, 245, 255, 0.4);
+  transition: height 0.18s ease-out;
+}
+
+.cockpit-throttle__needle {
+  position: absolute;
+  left: -4px;
+  right: -4px;
+  bottom: 50%;
+  height: 2px;
+  background: var(--primary-bright);
+  box-shadow: 0 0 8px rgba(217, 245, 255, 0.85);
+  transition: bottom 0.18s ease-out;
+}
+
+.cockpit-throttle__legend {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--on-surface-variant);
+  letter-spacing: var(--letter-caps);
+  opacity: 0.55;
+}
+
+/* Boost — radial half-arc */
+.cockpit-boost {
+  display: flex;
+  justify-content: center;
+}
+
+.cockpit-boost__arc {
+  width: 140px;
+  height: 100px;
+}
+
+.cockpit-boost__track {
+  stroke: rgba(76, 214, 255, 0.18);
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+
+.cockpit-boost__fill {
+  stroke: var(--primary-fixed-dim);
+  stroke-width: 5;
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 6px rgba(76, 214, 255, 0.65));
+  /* path length is approximately 100 — set high default, JS scales it. */
+  stroke-dasharray: 100 100;
+  stroke-dashoffset: 0;
+  transition: stroke 0.25s ease-out;
+}
+
+.cockpit-boost__fill.is-low {
+  stroke: var(--secondary);
+  filter: drop-shadow(0 0 8px rgba(255, 182, 147, 0.7));
+  animation: boost-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes boost-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+/* Attitude indicator — circular horizon with reticle */
+.cockpit-attitude {
+  position: relative;
+  width: 150px;
+  height: 150px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.cockpit-attitude__svg {
+  width: 130px;
+  height: 130px;
+  filter: drop-shadow(0 0 12px rgba(76, 214, 255, 0.35));
+}
+
+.cockpit-attitude__sky {
+  fill: rgba(76, 214, 255, 0.18);
+}
+
+.cockpit-attitude__ground {
+  fill: rgba(255, 182, 147, 0.16);
+}
+
+.cockpit-attitude__horizon-line {
+  stroke: rgba(217, 245, 255, 0.85);
+  stroke-width: 1.4;
+}
+
+.cockpit-attitude__pitch-line {
+  stroke: rgba(217, 245, 255, 0.45);
+  stroke-width: 0.6;
+}
+
+.cockpit-attitude__bezel {
+  fill: none;
+  stroke: rgba(76, 214, 255, 0.45);
+  stroke-width: 1;
+}
+
+.cockpit-attitude__reticle {
+  stroke: var(--primary-bright);
+  stroke-width: 1.4;
+}
+
+.cockpit-attitude__reticle-dot {
+  fill: var(--primary-bright);
+  filter: drop-shadow(0 0 3px rgba(217, 245, 255, 0.8));
+}
+
+.cockpit-attitude__label {
+  font-family: var(--font-mono);
+  letter-spacing: var(--letter-caps);
+  color: var(--on-surface-variant);
+  opacity: 0.55;
+}
+
+/* View-mode pill — top-center badge that changes label as C is pressed. */
+.view-mode-pill {
+  position: absolute;
+  top: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 14px;
+  background: var(--glass-bg-strong);
+  border: var(--glass-border);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: var(--radius-full);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: var(--letter-caps-wide);
+  color: var(--primary-bright);
+  text-shadow: 0 0 8px rgba(76, 214, 255, 0.6);
+  pointer-events: none;
+  z-index: 6;
+  opacity: 0;
+  transition: opacity 0.4s ease-out;
+}
+
+#screen-flight.is-active .view-mode-pill,
+#screen-arrival.is-active .view-mode-pill {
+  opacity: 1;
+}
+
+.view-mode-pill.is-flashing {
+  animation: view-mode-flash 1.05s ease-out;
+}
+
+.view-mode-pill__chip {
+  font-weight: 600;
+}
+
+.view-mode-pill__hint kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  border: 1px solid rgba(76, 214, 255, 0.4);
+  border-radius: 3px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--primary-fixed-dim);
+}
+
+@keyframes view-mode-flash {
+  0% {
+    box-shadow: 0 0 0 0 rgba(76, 214, 255, 0.0);
+    border-color: rgba(76, 214, 255, 0.32);
+  }
+  30% {
+    box-shadow: 0 0 18px 4px rgba(76, 214, 255, 0.4);
+    border-color: rgba(217, 245, 255, 0.85);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(76, 214, 255, 0.0);
+    border-color: rgba(76, 214, 255, 0.32);
+  }
+}
+
+/* Smooth out the existing flight-progress bar — no more per-frame jumps. */
+.travel-progress__fill {
+  transition: right 0.4s ease-out;
+}
+
+/* Choreographed reveal of the flight HUD when entering the screen.
+ * The keyframe is opacity-only so other transforms compose. */
+@keyframes flight-hud-fade-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+#screen-flight.is-active .flight-left .hud-card,
+#screen-flight.is-active .flight-center,
+#screen-flight.is-active .flight-right .hud-card,
+#screen-flight.is-active .flight-skip,
+#screen-flight.is-active .cockpit-dash__panel {
+  animation: flight-hud-fade-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+#screen-flight.is-active .flight-left .hud-card:nth-child(1) { animation-delay: 0.06s; }
+#screen-flight.is-active .flight-left .hud-card:nth-child(2) { animation-delay: 0.16s; }
+#screen-flight.is-active .flight-center { animation-delay: 0.22s; }
+#screen-flight.is-active .flight-right .hud-card:nth-child(1) { animation-delay: 0.30s; }
+#screen-flight.is-active .flight-right .hud-card:nth-child(2) { animation-delay: 0.40s; }
+#screen-flight.is-active .cockpit-dash__panel--left { animation-delay: 0.34s; }
+#screen-flight.is-active .cockpit-dash__panel--center { animation-delay: 0.42s; }
+#screen-flight.is-active .cockpit-dash__panel--right { animation-delay: 0.50s; }
+#screen-flight.is-active .flight-skip { animation-delay: 0.62s; }
+

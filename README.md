@@ -37,7 +37,13 @@ Open http://localhost:5173.
 
 - **Launch Control**: click `INITIATE LAUNCH` to begin.
 - **Destination Selector**: click a planet card.
-- **In-Flight**: cinematic; `SKIP` button skips the approach.
+- **In-Flight (cockpit simulator)**: click the canvas to capture the pointer.
+  - `Mouse` (or `Arrow Keys`) — pitch / yaw the spacecraft.
+  - `Q` / `E` — roll left / right.
+  - `W` / `S` — throttle up / down (auto-returns to cruise).
+  - `Space` — boost (drains gauge, recharges when released).
+  - `C` — toggle between **cockpit view** (Marble splat interior) and **chase cam** (third-person Artemis with engine plume).
+  - `Skip Approach` button — skip straight to arrival.
 - **Surface**: click the canvas to capture the pointer, then `WASD` + mouse to walk around. Press `ESC` to release. Click `RETURN TO ORBIT` to pick another planet.
 
 ## Scripts
@@ -48,7 +54,11 @@ Open http://localhost:5173.
 | `npm run build` | Type-check and build for production. |
 | `npm run preview` | Preview the production build locally. |
 | `npm run worlds:mock` | Populate `src/data/planets.ts` with public sample SPZs (no API key needed). |
-| `npm run worlds:generate` | Generate the 4 worlds via the Marble API. Requires `WLT_API_KEY`. |
+| `npm run worlds:generate` | Generate the 4 destination worlds via the Marble API. Requires `WLT_API_KEY`. |
+| `npm run cockpits:generate` | Generate the Artemis cockpit interior splat (~5 min). Requires `WLT_API_KEY`. |
+| `npm run cockpits:mock` | Seed `src/data/cockpits.ts` with a public Spark sample SPZ. |
+| `npm run backdrops:generate` | Generate the hangar bay backdrop splat. Requires `WLT_API_KEY`. |
+| `npm run backdrops:mock` | Seed `src/data/backdrops.ts` with a public Spark sample SPZ. |
 | `npm run typecheck` | Run TypeScript without emitting. |
 
 ## Architecture
@@ -56,14 +66,21 @@ Open http://localhost:5173.
 ```
 index.html                      HUD overlays + canvas + import map
 src/main.ts                     Renderer + SceneManager + animation loop
-src/scenes/SceneManager.ts      State machine: launch -> select -> flight -> arrival -> surface
+src/scenes/SceneManager.ts      State machine: launch -> hangar -> select -> flight -> arrival -> surface
 src/scenes/LaunchScene.ts       Earth + starfield + rocket
-src/scenes/FlightScene.ts       Warp starfield + planet approach
+src/scenes/HangarScene.ts       Artemis SLS pad scene (optional Marble backdrop)
+src/scenes/FlightScene.ts       Warp starfield + planet approach + cockpit rig
+src/scenes/CockpitRig.ts        Cockpit splat + chase-cam Artemis + engine plume + view-mode dolly
+src/scenes/FlightInput.ts       Smoothed keyboard + mouse input (pitch/yaw/roll, throttle, boost)
 src/scenes/SurfaceScene.ts      Spark splat world + first-person controls
 src/hud/                        DOM-overlay HUD components per state
+src/util/feel.ts                Shared easing / damping / spring helpers
+src/util/enginePlume.ts         Layered engine plume (core + noise plume + haze + particles)
 src/data/planets.ts             Destination metadata + splat URLs (auto-written)
+src/data/cockpits.ts            Cockpit metadata + splat URLs (auto-written)
+src/data/backdrops.ts           Backdrop metadata + splat URLs (auto-written)
 src/styles/                     Design tokens + HUD styles
-scripts/generate-worlds.ts      One-time world generation
+scripts/generate-worlds.ts      One-time world generation (--table planets|cockpits|backdrops)
 ```
 
 ## Design system

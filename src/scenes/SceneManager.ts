@@ -12,8 +12,16 @@ import { mountFlightHud } from "../hud/flightHud";
 import { mountArrivalHud } from "../hud/arrivalHud";
 import { mountSurfaceHud } from "../hud/surfaceHud";
 import { getPlanet, type Planet } from "../data/planets";
-import { playCue, startDrone, stopDrone, unlockAudio } from "../util/audio";
+import {
+  playCue,
+  setDroneFlightState,
+  startDrone,
+  stopDrone,
+  unlockAudio,
+} from "../util/audio";
 import { createPostFx, type PostFx } from "../util/post";
+import { FlightInput, type FlightInputSnapshot } from "./FlightInput";
+import { damp } from "../util/feel";
 
 export type AppState =
   | "launch"
@@ -72,6 +80,13 @@ export class SceneManager {
   private elapsed = 0;
   private hudCleanups: Array<() => void> = [];
   private flashEl: HTMLElement | null = null;
+  private viewToggleListeners: Array<(mode: "cockpit" | "chase") => void> = [];
+  private inputListeners: Array<(snapshot: FlightInputSnapshot) => void> = [];
+
+  private flightInput: FlightInput;
+  private lastInput: FlightInputSnapshot;
+  private bloomBias = 1;
+  private grainBias = 0.04;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -95,9 +110,15 @@ export class SceneManager {
     this.flashEl = document.getElementById("flash");
 
     this.launch = new LaunchScene(canvas);
-    this.hangar = new HangarScene(canvas);
-    this.flight = new FlightScene();
+    this.hangar = new HangarScene(canvas, this.spark);
+    this.flight = new FlightScene(this.spark);
     this.surface = new SurfaceScene(this.spark, canvas);
+
+    this.flightInput = new FlightInput(canvas);
+    this.lastInput = {
+      pitch: 0, yaw: 0, roll: 0,
+      throttle: 1, boost: 0, boostCharge: 1, boosting: false,
+    };
 
     this.active = this.launch;
     this.launch.enter();
@@ -108,7 +129,50 @@ export class SceneManager {
     this.installHud();
     this.updateScreenVisibility();
 
+    window.addEventListener("keydown", this.onGlobalKey);
+
     this.renderer.setAnimationLoop(this.tick);
+  }
+
+  /**
+   * App-wide key handler: only the view-mode toggle is registered globally,
+   * so it works whether or not pointer-lock is active.
+   */
+  private readonly onGlobalKey = (e: KeyboardEvent): void => {
+    if (e.code !== "KeyC") return;
+    if (this.state !== "flight" && this.state !== "arrival") return;
+    if (e.repeat) return;
+    this.flight.toggleView();
+    playCue("viewToggle");
+    const mode = this.flight.viewMode;
+    this.viewToggleListeners.forEach((cb) => cb(mode));
+  };
+
+  /** HUD subscribes here to update the view-mode badge. */
+  onViewToggle(cb: (mode: "cockpit" | "chase") => void): () => void {
+    this.viewToggleListeners.push(cb);
+    return () => {
+      this.viewToggleListeners = this.viewToggleListeners.filter(
+        (x) => x !== cb,
+      );
+    };
+  }
+
+  /** HUD subscribes here for per-frame flight input snapshots. */
+  onFlightInput(cb: (snapshot: FlightInputSnapshot) => void): () => void {
+    this.inputListeners.push(cb);
+    return () => {
+      this.inputListeners = this.inputListeners.filter((x) => x !== cb);
+    };
+  }
+
+  getFlightViewMode(): "cockpit" | "chase" {
+    return this.flight.viewMode;
+  }
+
+  /** Request pointer lock for cockpit mouse-look. HUD calls on click. */
+  requestFlightPointerLock(): void {
+    this.flightInput.requestPointerLock();
   }
 
   /* ============================================================
@@ -117,9 +181,15 @@ export class SceneManager {
 
   setState(next: AppState): void {
     if (next === this.state) return;
+    const prev = this.state;
     this.state = next;
     this.updateScreenVisibility();
     this.flashTransition();
+
+    // Tear down flight input when leaving the flight loop.
+    if (prev === "flight" && next !== "flight" && next !== "arrival") {
+      this.flightInput.stop();
+    }
 
     switch (next) {
       case "launch": {
@@ -152,6 +222,8 @@ export class SceneManager {
         this.post.setIntensity("warp");
         playCue("warp");
         startDrone();
+        this.flightInput.reset();
+        this.flightInput.start();
         break;
       }
       case "arrival": {
@@ -248,6 +320,10 @@ export class SceneManager {
         getTarget: () => this.selectedPlanet,
         onArrive: () => this.setState("arrival"),
         onSkip: () => this.flight.skipToArrival(),
+        onFlightInput: (cb) => this.onFlightInput(cb),
+        onViewToggle: (cb) => this.onViewToggle(cb),
+        getViewMode: () => this.getFlightViewMode(),
+        onLockRequest: () => this.requestFlightPointerLock(),
       }),
     );
 
@@ -306,6 +382,30 @@ export class SceneManager {
     this.lastTime = timeMs;
     this.elapsed += delta;
 
+    // Pump flight input first so the flight scene update sees fresh values.
+    if (this.state === "flight" || this.state === "arrival") {
+      this.lastInput = this.flightInput.step(delta);
+      this.flight.setInput({
+        pitch: this.lastInput.pitch,
+        yaw: this.lastInput.yaw,
+        roll: this.lastInput.roll,
+        throttle: this.lastInput.throttle,
+        boost: this.lastInput.boost,
+      });
+
+      // Couple post fx and drone audio to the input so the picture and
+      // soundscape *breathe* with throttle and boost.
+      const targetBloomMul = 1 + this.lastInput.boost * 0.35;
+      this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
+      const targetGrain = 0.04 + this.lastInput.boost * 0.025;
+      this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
+      this.post.setBias({ bloomMul: this.bloomBias, grain: this.grainBias });
+      setDroneFlightState(this.lastInput.throttle, this.lastInput.boost);
+
+      // Notify HUD listeners every frame.
+      this.inputListeners.forEach((cb) => cb(this.lastInput));
+    }
+
     this.active.update(delta, this.elapsed);
 
     // Auto-advance from flight → arrival when transit completes.
@@ -340,6 +440,7 @@ export class SceneManager {
   dispose(): void {
     this.renderer.setAnimationLoop(null);
     window.removeEventListener("resize", this.onResize);
+    window.removeEventListener("keydown", this.onGlobalKey);
     stopDrone();
     this.hudCleanups.forEach((fn) => fn());
     this.launch.dispose();

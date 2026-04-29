@@ -54,6 +54,15 @@ export interface PostFx {
   setScene(scene: THREE.Scene, camera: THREE.Camera): void;
   setSize(width: number, height: number): void;
   setIntensity(level: "default" | "warp" | "calm"): void;
+  /**
+   * Continuous bias that rides on top of the base intensity preset. Use this
+   * to make the picture *breathe* with throttle/boost — e.g. on boost engage,
+   * push bias toward 1 and let it ease back to 0 on release.
+   *  - bloomMul: multiplies bloom strength (1 = base, 1.5 = punchy).
+   *  - grain: replaces the grain strength directly.
+   *  - vignette: replaces the vignette strength directly.
+   */
+  setBias(bias: { bloomMul?: number; grain?: number; vignette?: number }): void;
   render(deltaSec: number): void;
   dispose(): void;
 }
@@ -92,8 +101,39 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
   composer.addPass(output);
 
   let elapsed = 0;
+  let baseBloomStrength = 0.85;
+  let baseGrain = 0.04;
+  let baseVignette = 0.5;
+  let bloomMul = 1;
 
-  const fx = {
+  const applyBase = (level: "default" | "warp" | "calm") => {
+    switch (level) {
+      case "warp":
+        baseBloomStrength = 1.25;
+        bloom.radius = 0.75;
+        baseGrain = 0.055;
+        baseVignette = 0.55;
+        break;
+      case "calm":
+        baseBloomStrength = 0.6;
+        bloom.radius = 0.45;
+        baseGrain = 0.03;
+        baseVignette = 0.4;
+        break;
+      case "default":
+      default:
+        baseBloomStrength = 0.85;
+        bloom.radius = 0.6;
+        baseGrain = 0.04;
+        baseVignette = 0.5;
+        break;
+    }
+    bloom.strength = baseBloomStrength * bloomMul;
+    (vignette.uniforms.uGrainStrength as { value: number }).value = baseGrain;
+    (vignette.uniforms.uVignetteStrength as { value: number }).value = baseVignette;
+  };
+
+  const fx: PostFx = {
     composer,
     bloom,
     bypass: false,
@@ -109,23 +149,19 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
     },
 
     setIntensity(level: "default" | "warp" | "calm") {
-      switch (level) {
-        case "warp":
-          bloom.strength = 1.25;
-          bloom.radius = 0.75;
-          (vignette.uniforms.uGrainStrength as { value: number }).value = 0.055;
-          break;
-        case "calm":
-          bloom.strength = 0.6;
-          bloom.radius = 0.45;
-          (vignette.uniforms.uGrainStrength as { value: number }).value = 0.03;
-          break;
-        case "default":
-        default:
-          bloom.strength = 0.85;
-          bloom.radius = 0.6;
-          (vignette.uniforms.uGrainStrength as { value: number }).value = 0.04;
-          break;
+      applyBase(level);
+    },
+
+    setBias({ bloomMul: bm, grain, vignette: vg }) {
+      if (bm !== undefined) {
+        bloomMul = bm;
+        bloom.strength = baseBloomStrength * bloomMul;
+      }
+      if (grain !== undefined) {
+        (vignette.uniforms.uGrainStrength as { value: number }).value = grain;
+      }
+      if (vg !== undefined) {
+        (vignette.uniforms.uVignetteStrength as { value: number }).value = vg;
       }
     },
 

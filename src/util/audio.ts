@@ -1,7 +1,12 @@
 // Tiny WebAudio cue generator + ambient drone — no external samples needed.
 
 let ctx: AudioContext | null = null;
-let droneNodes: { osc: OscillatorNode[]; gain: GainNode } | null = null;
+let droneNodes: {
+  osc: OscillatorNode[];
+  gain: GainNode;
+  filter: BiquadFilterNode;
+  baseFreqs: number[];
+} | null = null;
 
 function getCtx(): AudioContext | null {
   if (typeof window === "undefined") return null;
@@ -35,6 +40,10 @@ const CUES: Record<string, Cue> = {
   arrive: { freq: 440, toFreq: 220, duration: 0.6, type: "sine", gain: 0.08 },
   land: { freq: 90, duration: 0.5, type: "sawtooth", gain: 0.1 },
   alert: { freq: 1200, duration: 0.18, type: "square", gain: 0.05 },
+  // Soft "schunk" used when the cockpit/chase view toggles.
+  viewToggle: { freq: 380, toFreq: 180, duration: 0.22, type: "sine", gain: 0.07 },
+  // Sub thump that punches at boost engage.
+  boostThump: { freq: 90, toFreq: 38, duration: 0.45, type: "sine", gain: 0.18 },
 };
 
 export function playCue(name: keyof typeof CUES): void {
@@ -76,23 +85,33 @@ export function startDrone(targetGain = 0.04): void {
   const gain = audioCtx.createGain();
   gain.gain.value = 0;
   gain.gain.linearRampToValueAtTime(targetGain, audioCtx.currentTime + 1.5);
+
+  // Low-pass filter sits between drone and destination so we can sweep it
+  // open during boost for a "filter opens up" feel.
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = "lowpass";
+  filter.frequency.value = 600;
+  filter.Q.value = 0.7;
+
   const osc1 = audioCtx.createOscillator();
   const osc2 = audioCtx.createOscillator();
   const osc3 = audioCtx.createOscillator();
   osc1.type = "sawtooth";
   osc2.type = "sawtooth";
   osc3.type = "sine";
-  osc1.frequency.value = 55;
-  osc2.frequency.value = 55 * 1.005;
-  osc3.frequency.value = 110;
-  osc1.connect(gain);
-  osc2.connect(gain);
-  osc3.connect(gain);
+  const baseFreqs = [55, 55 * 1.005, 110];
+  osc1.frequency.value = baseFreqs[0];
+  osc2.frequency.value = baseFreqs[1];
+  osc3.frequency.value = baseFreqs[2];
+  osc1.connect(filter);
+  osc2.connect(filter);
+  osc3.connect(filter);
+  filter.connect(gain);
   gain.connect(audioCtx.destination);
   osc1.start();
   osc2.start();
   osc3.start();
-  droneNodes = { osc: [osc1, osc2, osc3], gain };
+  droneNodes = { osc: [osc1, osc2, osc3], gain, filter, baseFreqs };
 }
 
 export function stopDrone(): void {
@@ -109,4 +128,40 @@ export function stopDrone(): void {
     });
     droneNodes = null;
   }, 700);
+}
+
+/**
+ * Continuously couple the drone to flight feel:
+ *  - throttle in [0..2] shifts oscillator pitch (0.85x..1.25x).
+ *  - boost (0..1) opens the low-pass filter and bumps gain slightly.
+ * Safe to call every frame; uses small ramps so changes glide smoothly.
+ */
+export function setDroneFlightState(throttle: number, boost: number): void {
+  const audioCtx = getCtx();
+  if (!audioCtx || !droneNodes) return;
+  const t = Math.max(0, Math.min(2, throttle));
+  const b = Math.max(0, Math.min(1, boost));
+
+  // Map throttle 0..2 → pitch 0.85..1.25.
+  const pitch = 0.85 + (t / 2) * 0.4;
+  const filterCutoff = 600 + b * 1800; // 600 → 2400 Hz
+  const gainMul = 1 + b * 0.35;
+
+  const now = audioCtx.currentTime;
+  const ramp = 0.08;
+
+  droneNodes.osc.forEach((osc, i) => {
+    osc.frequency.cancelScheduledValues(now);
+    osc.frequency.linearRampToValueAtTime(
+      droneNodes!.baseFreqs[i] * pitch,
+      now + ramp,
+    );
+  });
+  droneNodes.filter.frequency.cancelScheduledValues(now);
+  droneNodes.filter.frequency.linearRampToValueAtTime(filterCutoff, now + ramp);
+
+  // Re-trigger gain envelope by reading current value and aiming at scaled.
+  const baseGain = 0.04;
+  droneNodes.gain.gain.cancelScheduledValues(now);
+  droneNodes.gain.gain.linearRampToValueAtTime(baseGain * gainMul, now + ramp);
 }

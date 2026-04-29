@@ -10,6 +10,10 @@
     "preview": "vite preview",
     "worlds:generate": "tsx scripts/generate-worlds.ts",
     "worlds:mock": "tsx scripts/generate-worlds.ts --mock",
+    "cockpits:generate": "tsx scripts/generate-worlds.ts --table cockpits",
+    "cockpits:mock": "tsx scripts/generate-worlds.ts --table cockpits --mock",
+    "backdrops:generate": "tsx scripts/generate-worlds.ts --table backdrops",
+    "backdrops:mock": "tsx scripts/generate-worlds.ts --table backdrops --mock",
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
