@@ -367,6 +367,16 @@ export class FlightInput {
           1.5,
           dt,
         );
+        // Snap targets to exact 0 when within a millidegree so the
+        // inner spring integrator stops producing micro-drift values
+        // that would otherwise keep firing camera rotations every
+        // frame.
+        if (Math.abs(this.headLookYawSpring.target) < 0.001) {
+          this.headLookYawSpring.target = 0;
+        }
+        if (Math.abs(this.headLookPitchSpring.target) < 0.001) {
+          this.headLookPitchSpring.target = 0;
+        }
       }
       // chase / external: no recentre — orbit angle persists.
     }
@@ -411,6 +421,27 @@ export class FlightInput {
     this.rollSpring.step(dt);
     this.headLookYawSpring.step(dt);
     this.headLookPitchSpring.step(dt);
+
+    // Final dead-zone on head-look spring outputs. The Spring1D
+    // integrator never reaches mathematical zero (asymptote), and any
+    // residual sub-millidegree value will be applied each frame as a
+    // camera rotation, producing visible cockpit jitter during steady
+    // forward flight. Snap to exact zero — and zero the velocity too,
+    // so the spring doesn't rebound through it on the next step.
+    if (
+      Math.abs(this.headLookYawSpring.value) < 0.0005 &&
+      Math.abs(this.headLookYawSpring.target) < 0.0005
+    ) {
+      this.headLookYawSpring.value = 0;
+      this.headLookYawSpring.velocity = 0;
+    }
+    if (
+      Math.abs(this.headLookPitchSpring.value) < 0.0005 &&
+      Math.abs(this.headLookPitchSpring.target) < 0.0005
+    ) {
+      this.headLookPitchSpring.value = 0;
+      this.headLookPitchSpring.velocity = 0;
+    }
 
     return this.snapshot(boost);
   }
