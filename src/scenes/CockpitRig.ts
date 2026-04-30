@@ -9,6 +9,7 @@ import {
 import {
   Tween,
   damp,
+  dampVec3,
   easeInOutCubic,
   noise1D,
   smoothstep,
@@ -114,6 +115,18 @@ export class CockpitRig {
   private readonly _scratchPrevLook = new THREE.Vector3();
   private readonly _scratchCurPos = new THREE.Vector3();
   private readonly _scratchCurLook = new THREE.Vector3();
+  /**
+   * Smoothed cockpit-camera pose. Cockpit view is the player's head — even
+   * sub-millisecond jitter from autopilot slerp + dynamics integration reads
+   * as "shake" through the windshield. We critically damp the camera eye
+   * and look target whenever the cockpit profile is dominant, which acts
+   * as a high-frequency noise filter without introducing visible lag (the
+   * lambda is high enough to track the autopilot's smooth heading changes
+   * within a couple of frames).
+   */
+  private readonly _smoothCockpitEye = new THREE.Vector3();
+  private readonly _smoothCockpitLook = new THREE.Vector3();
+  private cockpitSmoothInitialized = false;
 
   private readonly camera: THREE.PerspectiveCamera;
 
@@ -388,14 +401,47 @@ export class CockpitRig {
     this.computeProfile(this._prevViewMode, ship, prevPos, prevLook);
     this.computeProfile(this._viewMode, ship, curPos, curLook);
 
+    // Resolve the raw camera pose for this frame. Note: we mutate `prevPos`
+    // and `prevLook` in-place because they're scratch buffers and we no
+    // longer need their original "previous-mode" values after this lerp.
+    const rawEye = prevPos.lerp(curPos, tBlend);
+    const rawLook = this._scratchLookAt.copy(prevLook).lerp(curLook, tBlend);
+
+    // Cockpit-pose damping: when the cockpit profile is the dominant
+    // contribution, blend the raw pose into a smoothed pose at a high
+    // lambda. This filters the sub-frame attitude noise that otherwise
+    // reads as "the cockpit shakes a tiny bit during cruise". For chase /
+    // external the camera is detached from the pilot's head so we use the
+    // raw pose directly.
+    if (cockpitWeight > 0.001 && ship) {
+      if (!this.cockpitSmoothInitialized) {
+        this._smoothCockpitEye.copy(rawEye);
+        this._smoothCockpitLook.copy(rawLook);
+        this.cockpitSmoothInitialized = true;
+      } else {
+        // 18 / sec — settles within ~3 frames at 60fps. High enough that
+        // intentional autopilot heading changes still feel instantaneous.
+        const lambda = 18;
+        dampVec3(this._smoothCockpitEye, rawEye, lambda, dt);
+        dampVec3(this._smoothCockpitLook, rawLook, lambda, dt);
+      }
+      // Re-blend the smoothed cockpit pose with the raw exterior pose
+      // proportionally to cockpit weight; in pure cockpit mode this
+      // collapses to just the smoothed pose.
+      const w = cockpitWeight;
+      rawEye.lerp(this._smoothCockpitEye, w);
+      rawLook.lerp(this._smoothCockpitLook, w);
+    } else {
+      // Mark unitialized so re-entering cockpit reseeds from the live pose.
+      this.cockpitSmoothInitialized = false;
+    }
+
     this.camera.position
-      .copy(prevPos)
-      .lerp(curPos, tBlend)
+      .copy(rawEye)
       .add(this._idleSwayPos)
       .add(this.extraShakeOffset);
 
-    this._scratchLookAt.copy(prevLook).lerp(curLook, tBlend);
-    this.camera.lookAt(this._scratchLookAt);
+    this.camera.lookAt(rawLook);
 
     // FOV is part of the profile.
     const prevFov = this.profileFov(this._prevViewMode);

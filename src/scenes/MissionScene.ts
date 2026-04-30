@@ -53,8 +53,11 @@ const SHIP_PAD_OFFSET = 4;
 const APPROACH_RANGE = 200; // distance to dest centre that flips to "approach"
 const TOUCHDOWN_RANGE = 8; // altitude above dest surface that flips to "touchdown"
 
-/** Ship-local forward axis (CockpitRig convention: -Z is forward). */
-const _shipForwardLocal = new THREE.Vector3(0, 0, -1);
+// Roll-stabilization references for the autopilot's look-at attitude.
+const _missionWorldUp = new THREE.Vector3(0, 1, 0);
+const _missionUpFallback = new THREE.Vector3(0, 0, -1);
+const _missionLookEye = new THREE.Vector3();
+const _missionLookTarget = new THREE.Vector3();
 const _scratchTouchTarget = new THREE.Vector3();
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
@@ -160,6 +163,7 @@ export class MissionScene implements SceneSlot {
   private readonly _scratchShake = new THREE.Vector3();
   private readonly _scratchRadial = new THREE.Vector3();
   private readonly _scratchEuler = new THREE.Euler();
+  private readonly _scratchLookMatrix = new THREE.Matrix4();
 
   constructor(spark?: SparkRenderer) {
     this.spark = spark ?? null;
@@ -694,10 +698,25 @@ export class MissionScene implements SceneSlot {
     deltaSec: number,
     rate: number,
   ): void {
-    this._scratchDesiredQuat.setFromUnitVectors(
-      _shipForwardLocal,
-      desiredFwd,
+    // Build the target quaternion as a roll-stabilized look-at matrix.
+    // `setFromUnitVectors` computes the SHORTEST-ARC rotation from
+    // ship-local forward to `desiredFwd`, which carries an arbitrary roll
+    // component that drifts a few milliradians whenever `desiredFwd`
+    // changes direction. In the cockpit this drift reads as a faint,
+    // continuous "shake" of the world outside the windshield even
+    // though the autopilot is supposedly cruising in a straight line.
+    // Anchoring the target to a stable world-up zeroes the roll noise.
+    const referenceUp = Math.abs(desiredFwd.y) > 0.95
+      ? _missionUpFallback
+      : _missionWorldUp;
+    _missionLookEye.set(0, 0, 0);
+    _missionLookTarget.copy(desiredFwd);
+    this._scratchLookMatrix.lookAt(
+      _missionLookEye,
+      _missionLookTarget,
+      referenceUp,
     );
+    this._scratchDesiredQuat.setFromRotationMatrix(this._scratchLookMatrix);
     const slerpT = 1 - Math.exp(-rate * deltaSec);
     this.dynamics.ship.quaternion.slerp(this._scratchDesiredQuat, slerpT);
   }
