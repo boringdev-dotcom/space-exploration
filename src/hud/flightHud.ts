@@ -583,37 +583,68 @@ export function mountFlightHud(args: Args): () => void {
     }
   }
 
-  // Help overlay wiring ------------------------------------------------
+  // Help + PFD toggle wiring -------------------------------------------
+  const helpToggleBtn = document.getElementById(
+    "flight-help-toggle",
+  ) as HTMLButtonElement | null;
+  const pfdToggleBtn = document.getElementById(
+    "flight-pfd-toggle",
+  ) as HTMLButtonElement | null;
+
   let helpVisible = false;
-  let firstShowTimer: number | null = null;
   function setHelpVisible(visible: boolean): void {
     helpVisible = visible;
     if (helpOverlay) {
       helpOverlay.dataset.visible = visible ? "true" : "false";
       helpOverlay.setAttribute("aria-hidden", visible ? "false" : "true");
     }
-    if (firstShowTimer !== null) {
-      window.clearTimeout(firstShowTimer);
-      firstShowTimer = null;
-    }
+    if (helpToggleBtn) helpToggleBtn.dataset.active = visible ? "true" : "false";
   }
+
+  let pfdVisible = false;
+  function setPfdVisible(visible: boolean): void {
+    pfdVisible = visible;
+    if (pfdRoot) {
+      pfdRoot.dataset.visible = visible ? "true" : "false";
+      pfdRoot.setAttribute("aria-hidden", visible ? "false" : "true");
+    }
+    if (pfdToggleBtn) pfdToggleBtn.dataset.active = visible ? "true" : "false";
+  }
+
   const unsubHelp =
     args.onHelpToggle?.(() => {
       setHelpVisible(!helpVisible);
     }) ?? (() => {});
 
-  // Auto-show help for ~5s the first time the player enters the flight
-  // screen so they discover the binding overlay without reading docs.
-  let firstActivationDone = false;
-  function maybeAutoShowHelp(): void {
-    if (firstActivationDone) return;
-    firstActivationDone = true;
-    setHelpVisible(true);
-    firstShowTimer = window.setTimeout(() => {
-      if (helpVisible) setHelpVisible(false);
-      firstShowTimer = null;
-    }, 5500);
-  }
+  const onHelpBtnClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    setHelpVisible(!helpVisible);
+  };
+  const onPfdBtnClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    setPfdVisible(!pfdVisible);
+  };
+  const helpCloseBtn = document.getElementById(
+    "flight-help-close",
+  ) as HTMLButtonElement | null;
+  const onHelpCloseClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    setHelpVisible(false);
+  };
+  helpToggleBtn?.addEventListener("click", onHelpBtnClick);
+  pfdToggleBtn?.addEventListener("click", onPfdBtnClick);
+  helpCloseBtn?.addEventListener("click", onHelpCloseClick);
+
+  const onPfdKey = (e: KeyboardEvent): void => {
+    if (
+      e.code === "KeyP" &&
+      !e.repeat &&
+      screen?.classList.contains("is-active")
+    ) {
+      setPfdVisible(!pfdVisible);
+    }
+  };
+  window.addEventListener("keydown", onPfdKey);
 
   // Engage overlay wiring ----------------------------------------------
   function setEngageVisible(visible: boolean): void {
@@ -630,14 +661,13 @@ export function mountFlightHud(args: Args): () => void {
       setEngageVisible(!locked);
     }) ?? (() => {});
 
-  // Hook the existing screen-active observer so we auto-show help on
-  // first activation and reset visibility cleanly.
+  // Reset visibility cleanly when leaving the flight screen so the next
+  // entry starts in the default minimal state (PFD hidden, help hidden).
   const screenActiveObserver = new MutationObserver(() => {
     if (!screen) return;
-    if (screen.classList.contains("is-active")) {
-      maybeAutoShowHelp();
-    } else {
+    if (!screen.classList.contains("is-active")) {
       setHelpVisible(false);
+      setPfdVisible(false);
       setEngageVisible(false);
     }
   });
@@ -652,9 +682,12 @@ export function mountFlightHud(args: Args): () => void {
     cancelAnimationFrame(raf);
     observer.disconnect();
     screenActiveObserver.disconnect();
-    if (firstShowTimer !== null) window.clearTimeout(firstShowTimer);
     screen?.removeEventListener("click", requestLock);
     skipBtn?.removeEventListener("click", onSkipClick);
+    helpToggleBtn?.removeEventListener("click", onHelpBtnClick);
+    pfdToggleBtn?.removeEventListener("click", onPfdBtnClick);
+    helpCloseBtn?.removeEventListener("click", onHelpCloseClick);
+    window.removeEventListener("keydown", onPfdKey);
     unsubInput();
     unsubViewToggle();
     unsubControlMode();

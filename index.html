@@ -364,6 +364,20 @@
             <span class="skip-pill__label">Skip to Landing</span>
           </button>
 
+          <!-- HUD toggle pills (top-right, stacked under skip pill). -->
+          <div class="hud-toggle-stack">
+            <button class="hud-toggle-btn" id="flight-pfd-toggle" type="button" data-active="false" aria-label="Toggle Primary Flight Display">
+              <span class="material-symbols-outlined">view_in_ar</span>
+              <span class="hud-toggle-btn__label">PFD</span>
+              <span class="hud-toggle-btn__hint">[<kbd>P</kbd>]</span>
+            </button>
+            <button class="hud-toggle-btn" id="flight-help-toggle" type="button" aria-label="Toggle help overlay">
+              <span class="material-symbols-outlined">help</span>
+              <span class="hud-toggle-btn__label">Help</span>
+              <span class="hud-toggle-btn__hint">[<kbd>H</kbd>]</span>
+            </button>
+          </div>
+
           <!-- Minimal flight readout (top-left). -->
           <div class="flight-readout" id="flight-readout">
             <div class="flight-readout__row">
@@ -389,7 +403,7 @@
           </div>
 
           <!-- =================== PRIMARY FLIGHT DISPLAY =================== -->
-          <div class="pfd" id="pfd" aria-hidden="true">
+          <div class="pfd" id="pfd" aria-hidden="true" data-visible="false">
             <!-- Heading strip (top of PFD) -->
             <div class="pfd-heading">
               <div class="pfd-heading__viewport">
@@ -528,6 +542,9 @@
               <header class="flight-help__head">
                 <span class="t-label">FLIGHT CONTROLS</span>
                 <span class="t-meta primary-dim">[ <kbd>H</kbd> ] toggle</span>
+                <button class="flight-help__close" id="flight-help-close" type="button" aria-label="Close help">
+                  <span class="material-symbols-outlined">close</span>
+                </button>
               </header>
               <div class="flight-help__cols">
                 <div>
@@ -550,6 +567,7 @@
                   <div class="flight-help__row"><kbd>F</kbd><span>Free-fly toggle</span></div>
                   <div class="flight-help__row"><kbd>C</kbd><span>Cycle camera view</span></div>
                   <div class="flight-help__row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><span>Cockpit / Chase / External</span></div>
+                  <div class="flight-help__row"><kbd>P</kbd><span>Toggle PFD</span></div>
                   <div class="flight-help__row"><kbd>Esc</kbd><span>Release pointer</span></div>
                 </div>
               </div>
