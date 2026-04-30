@@ -713,9 +713,9 @@ export class MissionScene implements SceneSlot {
 
     // Cockpit "agility" signal — ramps up while the player is actively
     // pitching/yawing/rolling, drops back to 0 when at rest. Used by
-    // CockpitRig to scale its second-stage cockpit smoothing: stronger
-    // smoothing at rest (kill all sub-frame jitter) and lighter while
-    // maneuvering (track player input without lag).
+    // CockpitRig to scale its second-stage cockpit smoothing: slightly
+    // stronger at rest, slightly relaxed while maneuvering, with a high
+    // floor so the cabin splat never picks up integrator chatter.
     const agility = Math.min(
       1,
       (Math.abs(this.input.pitchRate) +

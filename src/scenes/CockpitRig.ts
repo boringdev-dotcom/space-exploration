@@ -166,9 +166,9 @@ export class CockpitRig {
   /**
    * Cockpit "agility" signal (0..1) — driven by the host from the
    * player's pitch+yaw+roll rates. At rest the rig applies very strong
-   * second-stage smoothing on the cockpit pose (λ=25, kills sub-frame
-   * jitter); during maneuvers it relaxes to λ=14 so input tracks
-   * without visible lag.
+   * second-stage smoothing on the cockpit pose (λ≈32, kills sub-frame
+   * jitter); during maneuvers it relaxes only slightly (λ≈26) so the
+   * cabin splat stays glass-smooth without noticeable pilot lag.
    */
   private cockpitAgility = 0;
 
@@ -499,8 +499,12 @@ export class CockpitRig {
         this._smoothShipQuat.copy(this.shipState.quaternion);
         this.smoothShipInitialized = true;
       } else {
-        dampVec3(this._smoothShipPos, this.shipState.position, 12, dt);
-        const sw = 1 - Math.exp(-10 * dt);
+        // Stronger low-pass than chase/external need: the cockpit splat is
+        // millimetres from the eye, so any integrator + autopilot slerp
+        // chatter reads as shake. λ high enough to track real turns within
+        // a few frames, low enough to kill single-frame spikes.
+        dampVec3(this._smoothShipPos, this.shipState.position, 18, dt);
+        const sw = 1 - Math.exp(-14 * dt);
         this._smoothShipQuat.slerp(this.shipState.quaternion, sw);
         this._smoothShipQuat.normalize();
       }
@@ -605,15 +609,12 @@ export class CockpitRig {
         this._smoothCockpitLook.copy(rawLook);
         this.cockpitSmoothInitialized = true;
       } else {
-        // Agility-aware second-stage smoothing.
-        //   At rest (agility = 0) we run λ=25 — kills sub-frame jitter
-        //   so the cockpit is genuinely rock-solid during cruise /
-        //   liftoff hold. 25/s settles in ~2 frames at 60Hz so the
-        //   filter is invisible.
-        //   While maneuvering (agility = 1) we drop to λ=14 so the
-        //   smoothed pose tracks intentional pitch/yaw/roll commands
-        //   without any visible lag.
-        const lambda = 25 - 11 * this.cockpitAgility;
+        // Agility-aware second-stage smoothing (eye + look).
+        // Keep the floor high: relaxing too far during maneuvers lets
+        // autopilot / dynamics micro-jitter through the windshield (very
+        // visible on a close splat). A narrow λ band stays smooth while
+        // still tracking attitude within a frame or two at 60Hz.
+        const lambda = 32 - 6 * this.cockpitAgility;
         dampVec3(this._smoothCockpitEye, rawEye, lambda, dt);
         dampVec3(this._smoothCockpitLook, rawLook, lambda, dt);
       }
@@ -670,7 +671,7 @@ export class CockpitRig {
     if (cockpitWeight > 0.001 && ship) {
       _scratchShipUp.set(0, 1, 0).applyQuaternion(this._smoothShipQuat);
       _scratchCamUp.copy(_worldUp).lerp(_scratchShipUp, cockpitWeight);
-      dampVec3(this._smoothCameraUp, _scratchCamUp, 8, dt);
+      dampVec3(this._smoothCameraUp, _scratchCamUp, 12, dt);
       this.camera.up.copy(this._smoothCameraUp).normalize();
     } else {
       // Snap smoothed up back to world-Y in chase/external so re-entering
