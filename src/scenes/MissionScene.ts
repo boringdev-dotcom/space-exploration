@@ -143,6 +143,18 @@ export class MissionScene implements SceneSlot {
   private spaceDust: SpaceDust;
   private sun: THREE.DirectionalLight;
 
+  /**
+   * View-mode-aware "cinematic" lights that only ramp up in chase /
+   * external. Cockpit is dark + clean (the cabin splat has its own baked
+   * studio lighting); chase/external get a cool cyan rim, a soft cool
+   * fill from ahead, and a plume-tinted under-glow on the engine bell.
+   */
+  private chaseRimLight: THREE.DirectionalLight;
+  private chaseFillLight: THREE.DirectionalLight;
+  private chaseUnderGlow: THREE.PointLight;
+  /** Base sun intensity — exterior views push this up by `+0.8`. */
+  private readonly baseSunIntensity = 2.4;
+
   private destinationGroup = new THREE.Group();
   private destinationMesh: THREE.Mesh;
   private destinationModel: THREE.Group | null = null;
@@ -235,10 +247,28 @@ export class MissionScene implements SceneSlot {
     // Earth + the destination still reads.
     // Intensity dialed back ~30% so the rocket's lit side doesn't push
     // hard past the bloom threshold and wash the picture out.
-    this.sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
+    this.sun = new THREE.DirectionalLight(0xfff1d6, this.baseSunIntensity);
     this.sun.position.set(800, 320, -400);
     this.scene.add(this.sun);
     this.scene.add(new THREE.AmbientLight(0x39496a, 0.42));
+
+    // Cinematic chase/external lighting — dormant in cockpit, ramps in for
+    // the third-person views. Rim light hugs the rocket's dark side from
+    // a direction roughly opposite the sun, giving a clean cool
+    // silhouette against space. Fill is a wide soft cyan-white from
+    // ahead-and-below to keep the front face from going inky. Under-glow
+    // is a point light parented to the rig (added below after `rig` is
+    // built) so it tracks the engine bell.
+    this.chaseRimLight = new THREE.DirectionalLight(0x6cd9ff, 0);
+    this.chaseRimLight.position.set(-600, 200, 400);
+    this.scene.add(this.chaseRimLight);
+
+    this.chaseFillLight = new THREE.DirectionalLight(0xb0c8ff, 0);
+    this.chaseFillLight.position.set(0, -200, -800);
+    this.scene.add(this.chaseFillLight);
+
+    this.chaseUnderGlow = new THREE.PointLight(0x6cf3ff, 0, 8, 2);
+    this.chaseUnderGlow.position.set(0, -0.3, 0.5);
 
     // Earth (GLB body + procedural shells).
     this.earth = createEarth();
@@ -304,6 +334,11 @@ export class MissionScene implements SceneSlot {
 
     // Hand the dynamics ship to the rig so the rig follows it.
     this.rig.followShip(this.dynamics.ship);
+
+    // Parent the under-glow to the rig root so it tracks the ship's
+    // position + orientation. The light's local offset (set above) places
+    // it just below + slightly behind the engine bell.
+    this.rig.root.add(this.chaseUnderGlow);
 
     // Phase controller wires Earth + destination into the state machine.
     this.phaseController = new PhaseController(
@@ -638,12 +673,57 @@ export class MissionScene implements SceneSlot {
     this.computeShake(elapsedSec, shakeAmp, this._scratchShake);
     this.rig.setExtraShake(this._scratchShake);
 
+    // Cinematic chase/external lighting ramp. Cockpit stays dark + clean
+    // (cabin splat has its own baked lighting); chase + external get a
+    // cool cyan rim, a soft cool fill, an under-glow on the engine bell,
+    // and a slightly hotter sun. λ=5 so view toggles glide instead of
+    // snapping.
+    const dramatic = exteriorWeight; // 0 in cockpit, 1 in chase/external
+    const targetRimI = 1.6 * dramatic;
+    const targetFillI = 0.55 * dramatic;
+    const targetUnderI =
+      1.4 * dramatic * Math.min(1, this.autopilotThrottle * 0.7);
+    const targetSunI = this.baseSunIntensity + 0.8 * dramatic;
+    this.chaseRimLight.intensity = damp(
+      this.chaseRimLight.intensity,
+      targetRimI,
+      5,
+      deltaSec,
+    );
+    this.chaseFillLight.intensity = damp(
+      this.chaseFillLight.intensity,
+      targetFillI,
+      5,
+      deltaSec,
+    );
+    this.chaseUnderGlow.intensity = damp(
+      this.chaseUnderGlow.intensity,
+      targetUnderI,
+      8,
+      deltaSec,
+    );
+    this.sun.intensity = damp(this.sun.intensity, targetSunI, 5, deltaSec);
+
     // Speed factor used by FOV bias + plume length (B1, B5).
     const dyn = this.dynamics;
     const speed = dyn.ship.velocity.length();
     const speedNorm = clamp01(speed / 60);
     this.rig.setThrottle(this.autopilotThrottle, this.input.boost, speedNorm);
     this.rig.setSpeedFovBias(speedNorm * 4);
+
+    // Cockpit "agility" signal — ramps up while the player is actively
+    // pitching/yawing/rolling, drops back to 0 when at rest. Used by
+    // CockpitRig to scale its second-stage cockpit smoothing: stronger
+    // smoothing at rest (kill all sub-frame jitter) and lighter while
+    // maneuvering (track player input without lag).
+    const agility = Math.min(
+      1,
+      (Math.abs(this.input.pitchRate) +
+        Math.abs(this.input.yawRate) +
+        Math.abs(this.input.rollRate)) /
+        1.2,
+    );
+    this.rig.setCockpitAgility(agility);
 
     // Boost engage edge → +6° FOV punch decaying over 0.4s.
     if (this.input.boost > 0.1 && this.lastBoost <= 0.1) {
