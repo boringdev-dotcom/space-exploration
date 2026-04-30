@@ -208,7 +208,7 @@ export class FlightScene implements SceneSlot {
     this.inputPitch = this.inputYaw = this.inputRoll = 0;
     this.inputThrottle = 1;
     this.inputBoost = 0;
-    this.rig.setView("cockpit", true);
+    this.rig.setView("chase", true);
 
     if (planet.modelUrl) {
       void this.loadPlanetModel(planet.modelUrl, this.planetModelLoadId);

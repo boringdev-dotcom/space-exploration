@@ -427,13 +427,12 @@ export class MissionScene implements SceneSlot {
     this.ignited = true;
     this.phaseController.ignited = true;
 
-    // Skip the opening cinematic entirely — drop straight into cockpit
-    // view so the player is already at the controls when the scene
-    // appears.
+    // Skip the opening cinematic entirely — start in chase view so the
+    // rocket reads clearly on the pad; the player can press 1 for cockpit.
     this.openingStage = "cockpit";
     this.openingElapsed = 0;
     this.rig.followShip(this.dynamics.ship);
-    this.rig.setView("cockpit", true);
+    this.rig.setView("chase", true);
   }
 
   /** Legacy entry point — autopilot-only experience auto-ignites. */
@@ -470,10 +469,10 @@ export class MissionScene implements SceneSlot {
     this.dynamics.frozen = true;
     this.dynamics.ship.velocity.set(0, 0, 0);
 
-    // Force the cinematic to settled cockpit so the autopilot owns the
-    // descent without any opening-stage scaffolding interfering.
+    // Force the cinematic finished so the autopilot owns the descent
+    // without any opening-stage scaffolding interfering.
     this.openingStage = "cockpit";
-    this.rig.setView("cockpit");
+    this.rig.setView("chase", true);
 
     // Drop straight into touchdown phase — the new touchdown autopilot
     // (damped position move toward the surface) handles the rest.
@@ -556,8 +555,7 @@ export class MissionScene implements SceneSlot {
       if (this.openingStage !== "cockpit") {
         this.openingStage = "cockpit";
         this.openingElapsed = 0;
-        this.rig.setView("cockpit");
-        this.rig.beginCinematicCockpitFade(0.4);
+        this.rig.setView("chase", true);
       }
       if (this.dynamics.frozen && this.phaseController.phase === "liftoff") {
         this.exitCannedLiftoff();

@@ -353,8 +353,8 @@ export class SceneManager {
         startDrone();
         this.flightInput.reset();
         this.flightInput.start();
-        // Sync FlightInput's view-mode awareness on first entry so the
-        // initial cockpit view uses cockpit head-look limits/recentre.
+        // Sync FlightInput's view-mode awareness on first entry (chase by
+        // default; cockpit uses tighter head-look limits + recentre).
         this.flightInput.setViewMode(this.mission.viewMode);
         // No pointer-lock auto-grab — camera is now click-and-drag, not
         // mouse-look. The player drags the canvas to orbit the camera.
