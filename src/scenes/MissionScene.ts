@@ -569,6 +569,12 @@ export class MissionScene implements SceneSlot {
   update(deltaSec: number, elapsedSec: number): void {
     this.earth.update(deltaSec, elapsedSec);
 
+    // Drive the atmosphere fade from camera distance to Earth centre. The
+    // back-side additive shell otherwise washes the cockpit cyan during
+    // liftoff (camera spawns inside the shell radius).
+    const camDistanceFromEarth = this.camera.position.length();
+    this.earth.setCameraDistance(camDistanceFromEarth);
+
     // Stars are placed at world radius 9500; if we never moved them with
     // the ship they'd start to feel "left behind" once the rocket has
     // actually traveled meaningful units. Keep them anchored on the
@@ -614,11 +620,21 @@ export class MissionScene implements SceneSlot {
     // Camera shake amplitude per phase (pre-cached `feel` to avoid double
     // call). Inside the cockpit (camera = pilot's head) we kill shake
     // entirely so the player doesn't get motion-sick — only the chase
-    // and external cameras vibrate with the engines.
+    // and external cameras vibrate with the engines. Shake is hard-zeroed
+    // when cockpit is dominant and falls off quadratically through the
+    // crossfade, so a sliver of cockpit weight can never leak shake into
+    // the pilot's head.
     const feel = this.phaseController.feel();
-    const exteriorWeight = 1 - this.rig.cockpitWeight;
+    const cockpitW = this.rig.cockpitWeight;
+    const exteriorWeight = 1 - cockpitW;
     const shakeAmp =
-      0.022 * feel.shakeScale * this.autopilotThrottle * exteriorWeight;
+      cockpitW > 0.85
+        ? 0
+        : 0.022 *
+          feel.shakeScale *
+          this.autopilotThrottle *
+          exteriorWeight *
+          exteriorWeight;
     this.computeShake(elapsedSec, shakeAmp, this._scratchShake);
     this.rig.setExtraShake(this._scratchShake);
 
