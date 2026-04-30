@@ -194,6 +194,10 @@ export class SceneManager {
       onSetView: (mode) => {
         if (this.state !== "mission") return;
         this.mission.setView(mode);
+        // Tell FlightInput about the new mode so head-look limits +
+        // release behaviour adapt (cockpit drifts back; chase/external
+        // hold).
+        this.flightInput.setViewMode(this.mission.viewMode);
         playCue("viewToggle");
         this.viewToggleListeners.forEach((cb) => cb(mode));
       },
@@ -226,8 +230,11 @@ export class SceneManager {
     if (e.code === "KeyC" && !e.repeat) {
       if (this.state === "mission") {
         this.mission.toggleView();
-        playCue("viewToggle");
         const mode = this.mission.viewMode;
+        // Sync FlightInput so head-look limits + release behaviour
+        // match the new view (cockpit recentres, chase/external hold).
+        this.flightInput.setViewMode(mode);
+        playCue("viewToggle");
         this.viewToggleListeners.forEach((cb) => cb(mode));
       }
     }
@@ -346,6 +353,9 @@ export class SceneManager {
         startDrone();
         this.flightInput.reset();
         this.flightInput.start();
+        // Sync FlightInput's view-mode awareness on first entry so the
+        // initial cockpit view uses cockpit head-look limits/recentre.
+        this.flightInput.setViewMode(this.mission.viewMode);
         // No pointer-lock auto-grab — camera is now click-and-drag, not
         // mouse-look. The player drags the canvas to orbit the camera.
         break;
@@ -584,28 +594,31 @@ export class SceneManager {
       // 6,000 km/s in our scale, so /3000 hits 1 by mid-cruise; clamp.
       const speedNorm = Math.max(0, Math.min(1, speedKmS / 3000));
       const proximity = this.mission.getAtmosphericProximity(); // 0..1
-      // Composite bloom bias — every contribution now ~half its original
-      // value so cruise / boost / proximity don't blow the picture out.
+      // Composite bloom bias — proximity contribution dialed back so the
+      // launch pad (where camera AGL ≈ 4u and proximity ramps high by
+      // construction) doesn't blow the picture out. The atmosphere shell
+      // fade in Earth.ts handles most of the "close to body" visual
+      // change; proximity here is just a subtle accent.
       const targetBloomMul =
         1 +
         this.lastInput.boost * 0.18 +
         phaseBias * 0.4 +
         speedNorm * 0.08 +
-        proximity * 0.22;
+        proximity * 0.10;
       this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
       const targetGrain =
-        0.035 + this.lastInput.boost * 0.015 + proximity * 0.015;
+        0.035 + this.lastInput.boost * 0.015 + proximity * 0.008;
       this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
       // Bloom radius gentle — wide blooms read as wash. Keep it tight.
       const targetRadiusMul =
-        1 + this.lastInput.boost * 0.18 + proximity * 0.22 + speedNorm * 0.08;
+        1 + this.lastInput.boost * 0.18 + proximity * 0.10 + speedNorm * 0.08;
       this.bloomRadiusBias = damp(
         this.bloomRadiusBias,
         targetRadiusMul,
         5,
         delta,
       );
-      const targetVignette = 0.5 - proximity * 0.22 + this.lastInput.boost * 0.05;
+      const targetVignette = 0.5 - proximity * 0.10 + this.lastInput.boost * 0.05;
       this.vignetteBias = damp(this.vignetteBias, targetVignette, 5, delta);
       this.post.setBias({
         bloomMul: this.bloomBias,
