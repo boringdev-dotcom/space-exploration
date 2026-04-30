@@ -388,6 +388,123 @@
             </div>
           </div>
 
+          <!-- =================== PRIMARY FLIGHT DISPLAY =================== -->
+          <div class="pfd" id="pfd" aria-hidden="true">
+            <!-- Heading strip (top of PFD) -->
+            <div class="pfd-heading">
+              <div class="pfd-heading__viewport">
+                <div class="pfd-heading__strip" id="pfd-heading-strip">
+                  <!-- ticks injected by JS -->
+                </div>
+              </div>
+              <div class="pfd-heading__bug" id="pfd-heading-bug" aria-label="Target bearing">
+                <span class="material-symbols-outlined">arrow_drop_down</span>
+              </div>
+              <div class="pfd-heading__own" aria-hidden="true"></div>
+              <div class="pfd-heading__readout" id="pfd-heading-readout">000°</div>
+            </div>
+
+            <!-- Main PFD row: airspeed | horizon | altitude -->
+            <div class="pfd-row">
+              <!-- Airspeed tape (left) -->
+              <div class="pfd-tape pfd-tape--airspeed">
+                <div class="pfd-tape__label">KM/S</div>
+                <div class="pfd-tape__viewport">
+                  <div class="pfd-tape__ticks" id="pfd-airspeed-ticks"></div>
+                </div>
+                <div class="pfd-tape__readout" id="pfd-airspeed-readout">0.000</div>
+              </div>
+
+              <!-- Artificial horizon (center) -->
+              <div class="pfd-horizon">
+                <svg class="pfd-horizon__svg" viewBox="-200 -110 400 220" preserveAspectRatio="xMidYMid slice">
+                  <defs>
+                    <clipPath id="pfd-horizon-clip">
+                      <rect x="-200" y="-110" width="400" height="220" rx="14" />
+                    </clipPath>
+                  </defs>
+                  <g clip-path="url(#pfd-horizon-clip)">
+                    <!-- Roll group: rotates with -roll -->
+                    <g id="pfd-horizon-roll">
+                      <!-- Pitch group: translates with pitch -->
+                      <g id="pfd-horizon-pitch">
+                        <!-- Sky -->
+                        <rect x="-600" y="-1200" width="1200" height="1200" fill="url(#pfd-sky)" />
+                        <!-- Ground -->
+                        <rect x="-600" y="0" width="1200" height="1200" fill="url(#pfd-ground)" />
+                        <!-- Horizon line -->
+                        <line x1="-600" y1="0" x2="600" y2="0" stroke="rgba(76, 214, 255, 0.85)" stroke-width="2" />
+                        <!-- Pitch ladder -->
+                        <g id="pfd-pitch-ladder" stroke="rgba(217, 245, 255, 0.85)" stroke-width="1.4" font-family="var(--font-mono, monospace)" font-size="11" fill="rgba(217, 245, 255, 0.9)">
+                          <!-- ladder ticks injected by JS -->
+                        </g>
+                      </g>
+                    </g>
+                  </g>
+                  <defs>
+                    <linearGradient id="pfd-sky" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#0d1f3c" />
+                      <stop offset="100%" stop-color="#1d4a7a" />
+                    </linearGradient>
+                    <linearGradient id="pfd-ground" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stop-color="#3a2614" />
+                      <stop offset="100%" stop-color="#1a0e06" />
+                    </linearGradient>
+                  </defs>
+                  <!-- Roll arc (top) -->
+                  <g id="pfd-roll-arc" stroke="rgba(217, 245, 255, 0.55)" stroke-width="1" fill="none" />
+                  <!-- Roll pointer -->
+                  <polygon id="pfd-roll-pointer" points="0,-92 -6,-104 6,-104" fill="#ffba20" />
+                  <!-- Fixed crosshair -->
+                  <g class="pfd-horizon__crosshair">
+                    <line x1="-46" y1="0" x2="-12" y2="0" stroke="#ffba20" stroke-width="2.5" />
+                    <line x1="46" y1="0" x2="12" y2="0" stroke="#ffba20" stroke-width="2.5" />
+                    <rect x="-12" y="-2" width="24" height="4" fill="#ffba20" />
+                    <circle cx="0" cy="0" r="3" fill="#ffba20" />
+                  </g>
+                  <!-- Flight Path Vector marker -->
+                  <g id="pfd-fpv" style="display:none">
+                    <circle r="8" fill="none" stroke="#7df9ff" stroke-width="1.6" />
+                    <line x1="-12" y1="0" x2="-8" y2="0" stroke="#7df9ff" stroke-width="1.6" />
+                    <line x1="8" y1="0" x2="12" y2="0" stroke="#7df9ff" stroke-width="1.6" />
+                    <line x1="0" y1="-12" x2="0" y2="-8" stroke="#7df9ff" stroke-width="1.6" />
+                  </g>
+                  <!-- Frame -->
+                  <rect x="-200" y="-110" width="400" height="220" rx="14" fill="none" stroke="rgba(76, 214, 255, 0.45)" stroke-width="1.5" />
+                </svg>
+              </div>
+
+              <!-- Altitude tape (right) -->
+              <div class="pfd-tape pfd-tape--altitude">
+                <div class="pfd-tape__label" id="pfd-altitude-label">EARTH AGL</div>
+                <div class="pfd-tape__viewport">
+                  <div class="pfd-tape__ticks" id="pfd-altitude-ticks"></div>
+                </div>
+                <div class="pfd-tape__readout" id="pfd-altitude-readout">0 km</div>
+                <div class="pfd-tape__vsi" id="pfd-vsi-readout">VS 0 km/s</div>
+              </div>
+            </div>
+
+            <!-- Bottom row: throttle + boost gauges -->
+            <div class="pfd-gauges">
+              <div class="pfd-gauge">
+                <span class="pfd-gauge__label">THR</span>
+                <div class="pfd-gauge__bar">
+                  <div class="pfd-gauge__fill" id="pfd-throttle-fill"></div>
+                  <div class="pfd-gauge__cruise"></div>
+                </div>
+                <span class="pfd-gauge__value" id="pfd-throttle-value">100%</span>
+              </div>
+              <div class="pfd-gauge pfd-gauge--boost">
+                <span class="pfd-gauge__label">BOOST</span>
+                <div class="pfd-gauge__bar">
+                  <div class="pfd-gauge__fill" id="pfd-boost-fill"></div>
+                </div>
+                <span class="pfd-gauge__value" id="pfd-boost-value">100%</span>
+              </div>
+            </div>
+          </div>
+
           <!-- Click-to-engage overlay (shown while pointer-lock is inactive). -->
           <div class="engage-overlay" id="flight-engage-overlay" aria-hidden="true">
             <div class="engage-overlay__panel">

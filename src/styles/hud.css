@@ -3544,3 +3544,371 @@
 .phase-strip[data-paused="true"] .phase-strip__sep {
   opacity: 0.2;
 }
+
+/* =====================================================================
+ * Primary Flight Display (PFD) — bottom-center HUD: airspeed tape,
+ * artificial horizon, altitude tape, heading strip, throttle/boost gauges.
+ * ===================================================================== */
+
+.pfd {
+  position: absolute;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(640px, calc(100% - 64px));
+  pointer-events: none;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+
+#screen-flight.is-active .pfd {
+  opacity: 1;
+}
+
+/* --- Heading strip --- */
+.pfd-heading {
+  position: relative;
+  height: 32px;
+  background: var(--glass-bg-strong);
+  border: 1px solid rgba(76, 214, 255, 0.4);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+.pfd-heading__viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 12%,
+    black 88%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to right,
+    transparent 0%,
+    black 12%,
+    black 88%,
+    transparent 100%
+  );
+}
+
+.pfd-heading__strip {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  height: 100%;
+  width: 3600px; /* 360deg * 10px */
+  display: flex;
+  align-items: center;
+  will-change: transform;
+}
+
+.pfd-heading__tick {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 1px;
+  background: rgba(217, 245, 255, 0.55);
+}
+.pfd-heading__tick.is-major {
+  top: 0;
+  bottom: 0;
+  background: rgba(217, 245, 255, 0.9);
+}
+.pfd-heading__tick-label {
+  position: absolute;
+  top: 12px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  color: var(--primary-fixed-dim);
+  text-shadow: 0 0 4px rgba(76, 214, 255, 0.5);
+}
+
+.pfd-heading__own {
+  position: absolute;
+  top: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 0;
+  height: 0;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 9px solid #ffba20;
+  filter: drop-shadow(0 0 4px rgba(255, 186, 32, 0.7));
+}
+
+.pfd-heading__bug {
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: translateX(-50%);
+  color: #7df9ff;
+  font-size: 16px;
+  filter: drop-shadow(0 0 6px rgba(125, 249, 255, 0.85));
+  pointer-events: none;
+  transition: transform 0.05s linear;
+}
+.pfd-heading__bug .material-symbols-outlined {
+  font-size: 24px;
+}
+.pfd-heading__bug[data-hidden="true"] {
+  opacity: 0;
+}
+
+.pfd-heading__readout {
+  position: absolute;
+  bottom: 4px;
+  right: 8px;
+  font-size: 11px;
+  color: var(--primary-bright);
+  text-shadow: 0 0 6px rgba(76, 214, 255, 0.8);
+  font-weight: 700;
+}
+
+/* --- Main row --- */
+.pfd-row {
+  display: grid;
+  grid-template-columns: 86px 1fr 86px;
+  gap: 8px;
+  align-items: stretch;
+  height: 220px;
+}
+
+/* --- Tapes (airspeed + altitude) --- */
+.pfd-tape {
+  position: relative;
+  background: var(--glass-bg-strong);
+  border: 1px solid rgba(76, 214, 255, 0.4);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: 10px;
+  overflow: hidden;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.45);
+}
+
+.pfd-tape__label {
+  position: absolute;
+  top: 6px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  color: var(--on-surface-variant);
+  opacity: 0.7;
+}
+
+.pfd-tape__viewport {
+  position: absolute;
+  top: 24px;
+  bottom: 40px;
+  left: 0;
+  right: 0;
+  overflow: hidden;
+  mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 18%,
+    black 82%,
+    transparent 100%
+  );
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 18%,
+    black 82%,
+    transparent 100%
+  );
+}
+
+.pfd-tape__ticks {
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
+  will-change: transform;
+}
+
+.pfd-tape__tick {
+  position: absolute;
+  height: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+}
+.pfd-tape__tick::before {
+  content: "";
+  flex: 0 0 18px;
+  height: 1px;
+  background: rgba(217, 245, 255, 0.55);
+  margin-left: 4px;
+}
+.pfd-tape__tick.is-major::before {
+  flex-basis: 28px;
+  height: 1.6px;
+  background: rgba(217, 245, 255, 0.95);
+}
+.pfd-tape__tick span {
+  margin-left: 6px;
+  font-size: 10px;
+  color: var(--on-surface);
+  text-shadow: 0 0 4px rgba(76, 214, 255, 0.6);
+}
+.pfd-tape--altitude .pfd-tape__tick {
+  flex-direction: row-reverse;
+}
+.pfd-tape--altitude .pfd-tape__tick::before {
+  margin-left: 0;
+  margin-right: 4px;
+}
+.pfd-tape--altitude .pfd-tape__tick span {
+  margin-left: 0;
+  margin-right: 6px;
+}
+
+.pfd-tape__readout {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 22px;
+  text-align: center;
+  padding: 3px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid #ffba20;
+  color: #ffd57a;
+  font-size: 12px;
+  font-weight: 700;
+  text-shadow: 0 0 6px rgba(255, 186, 32, 0.7);
+  letter-spacing: 0.05em;
+}
+.pfd-tape__vsi {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 4px;
+  text-align: center;
+  font-size: 9px;
+  color: var(--on-surface-variant);
+  opacity: 0.85;
+  letter-spacing: 0.1em;
+}
+
+/* --- Artificial horizon --- */
+.pfd-horizon {
+  position: relative;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
+.pfd-horizon__svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.pfd-horizon__crosshair {
+  filter: drop-shadow(0 0 4px rgba(255, 186, 32, 0.6));
+}
+
+/* --- Throttle + boost gauges --- */
+.pfd-gauges {
+  display: flex;
+  gap: 8px;
+}
+
+.pfd-gauge {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 56px 1fr 64px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--glass-bg-strong);
+  border: 1px solid rgba(76, 214, 255, 0.4);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border-radius: 8px;
+  font-size: 10px;
+  color: var(--on-surface-variant);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.4);
+}
+
+.pfd-gauge__label {
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--primary-fixed-dim);
+}
+
+.pfd-gauge__bar {
+  position: relative;
+  height: 10px;
+  border-radius: 4px;
+  background: rgba(76, 214, 255, 0.08);
+  overflow: hidden;
+}
+
+.pfd-gauge__fill {
+  position: absolute;
+  inset: 0;
+  width: 0%;
+  background: linear-gradient(
+    90deg,
+    rgba(76, 214, 255, 0.5),
+    rgba(76, 214, 255, 0.95)
+  );
+  box-shadow: 0 0 8px rgba(76, 214, 255, 0.6);
+  transition: width 0.1s ease-out;
+}
+
+/* Cruise tick at 50% (i.e. throttle=1 of 2). */
+.pfd-gauge__cruise {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  left: 50%;
+  width: 1.5px;
+  background: rgba(255, 186, 32, 0.7);
+}
+
+.pfd-gauge--boost .pfd-gauge__fill {
+  background: linear-gradient(90deg, rgba(255, 186, 32, 0.5), #ffba20);
+  box-shadow: 0 0 8px rgba(255, 186, 32, 0.8);
+}
+
+.pfd-gauge__value {
+  text-align: right;
+  font-weight: 700;
+  color: var(--primary-bright);
+  text-shadow: 0 0 4px rgba(76, 214, 255, 0.5);
+}
+.pfd-gauge--boost .pfd-gauge__value {
+  color: #ffd57a;
+  text-shadow: 0 0 5px rgba(255, 186, 32, 0.7);
+}
+
+/* On phase strip overlap with PFD heading strip on small viewports,
+ * push the readout panel up so they don't collide. */
+@media (max-width: 980px) {
+  .pfd {
+    width: calc(100% - 32px);
+    bottom: 16px;
+  }
+  .pfd-row {
+    grid-template-columns: 72px 1fr 72px;
+    height: 180px;
+  }
+}

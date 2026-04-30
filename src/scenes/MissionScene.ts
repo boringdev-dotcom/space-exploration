@@ -59,6 +59,9 @@ const _missionUpFallback = new THREE.Vector3(0, 0, -1);
 const _missionLookEye = new THREE.Vector3();
 const _missionLookTarget = new THREE.Vector3();
 const _scratchTouchTarget = new THREE.Vector3();
+const _scratchTargetDir = new THREE.Vector3();
+const _scratchInvQuat = new THREE.Quaternion();
+const _scratchRadialN = new THREE.Vector3();
 
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
 
@@ -105,6 +108,17 @@ export interface MissionTelemetry {
   shipPitchDeg: number;
   shipRollDeg: number;
   shipYawDeg: number;
+  /**
+   * Bearing to the destination in the SHIP'S local frame, degrees.
+   *  - bearingDeg: yaw delta to the destination (-180..180). 0 = nose-on.
+   *  - elevationDeg: pitch delta to the destination (-90..90). 0 = on horizon.
+   *  - inFront: true when the destination lies forward of the ship.
+   */
+  targetBearingDeg: number;
+  targetElevationDeg: number;
+  targetInFront: boolean;
+  /** Vertical speed (km/s, +up against Earth radial). */
+  verticalSpeedKmS: number;
 }
 
 export interface MissionEvents {
@@ -712,6 +726,36 @@ export class MissionScene implements SceneSlot {
     const range = this.phaseController.rangeToDestination(ship);
 
     this._scratchEuler.setFromQuaternion(ship.quaternion, "YXZ");
+
+    // Target bearing/elevation in the SHIP'S local frame.
+    // Workflow: world-space dir → invert ship.quaternion to bring it
+    // into ship-local; ship-local -Z is "forward".
+    const dest = this.phaseController.destinationCenter;
+    const dirLocal = _scratchTargetDir.copy(dest).sub(ship.position);
+    const distLocal = dirLocal.length();
+    if (distLocal > 1e-6) dirLocal.multiplyScalar(1 / distLocal);
+    dirLocal.applyQuaternion(_scratchInvQuat.copy(ship.quaternion).invert());
+    // bearing = yaw to target = atan2(local x, -local z)
+    const bearingDeg = THREE.MathUtils.radToDeg(
+      Math.atan2(dirLocal.x, -dirLocal.z),
+    );
+    // elevation = pitch to target = atan2(local y, sqrt(x^2 + z^2))
+    const horiz = Math.hypot(dirLocal.x, dirLocal.z);
+    const elevationDeg = THREE.MathUtils.radToDeg(
+      Math.atan2(dirLocal.y, Math.max(1e-6, horiz)),
+    );
+
+    // Vertical speed: project velocity onto Earth-radial (which is the
+    // ship.position direction at our scale, since Earth sits at origin).
+    const radial = _scratchRadialN.copy(ship.position);
+    const radialLen = radial.length();
+    let verticalSpeedKmS = 0;
+    if (radialLen > 1e-6) {
+      radial.multiplyScalar(1 / radialLen);
+      const vRad = ship.velocity.dot(radial); // units/sec along +radial
+      verticalSpeedKmS = vRad * WORLD_SCALE_KM_PER_UNIT;
+    }
+
     return {
       phase: this.phaseController.phase,
       speedKmS: this.dynamics.speedKmS(),
@@ -721,6 +765,10 @@ export class MissionScene implements SceneSlot {
       shipPitchDeg: THREE.MathUtils.radToDeg(this._scratchEuler.x),
       shipRollDeg: THREE.MathUtils.radToDeg(this._scratchEuler.z),
       shipYawDeg: THREE.MathUtils.radToDeg(this._scratchEuler.y),
+      targetBearingDeg: bearingDeg,
+      targetElevationDeg: elevationDeg,
+      targetInFront: -dirLocal.z > 0,
+      verticalSpeedKmS,
     };
   }
 

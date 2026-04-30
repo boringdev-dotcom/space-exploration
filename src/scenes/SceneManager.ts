@@ -463,6 +463,29 @@ export class SceneManager {
         getControlMode: () => this.getControlMode(),
         onHelpToggle: (cb) => this.onHelpToggle(cb),
         onPointerLockChange: (cb) => this.onFlightPointerLockChange(cb),
+        // Phase D — Primary Flight Display.
+        getPfdTelemetry: () => {
+          const t = this.mission.getTelemetry();
+          const useDest =
+            t.phase === "approach" ||
+            t.phase === "touchdown" ||
+            t.phase === "landed";
+          return {
+            speedKmS: t.speedKmS,
+            altitudeKm: useDest ? t.destinationAltitudeKm : t.altitudeKm,
+            altitudeIsDestination: useDest,
+            shipPitchDeg: t.shipPitchDeg,
+            shipRollDeg: t.shipRollDeg,
+            shipYawDeg: t.shipYawDeg,
+            targetBearingDeg: t.targetBearingDeg,
+            targetElevationDeg: t.targetElevationDeg,
+            targetInFront: t.targetInFront,
+            verticalSpeedKmS: t.verticalSpeedKmS,
+            throttle: this.lastInput.throttle,
+            boostCharge: this.lastInput.boostCharge,
+            boost: this.lastInput.boost,
+          };
+        },
       }),
     );
 
