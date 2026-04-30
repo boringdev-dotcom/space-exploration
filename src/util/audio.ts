@@ -44,6 +44,12 @@ const CUES: Record<string, Cue> = {
   viewToggle: { freq: 380, toFreq: 180, duration: 0.22, type: "sine", gain: 0.07 },
   // Sub thump that punches at boost engage.
   boostThump: { freq: 90, toFreq: 38, duration: 0.45, type: "sine", gain: 0.18 },
+  // Autopilot engage (rising chirp).
+  apOn: { freq: 660, toFreq: 1320, duration: 0.16, type: "sine", gain: 0.08 },
+  // Autopilot disengage (falling chirp).
+  apOff: { freq: 1320, toFreq: 440, duration: 0.20, type: "sine", gain: 0.08 },
+  // Free-fly engage (warm sweep).
+  freeFly: { freq: 220, toFreq: 880, duration: 0.42, type: "triangle", gain: 0.1 },
 };
 
 export function playCue(name: keyof typeof CUES): void {

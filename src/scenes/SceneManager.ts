@@ -151,9 +151,15 @@ export class SceneManager {
       },
       onControlModeChange: (next) => {
         this.controlModeListeners.forEach((cb) => cb(next));
-        // Quick audio feedback so the player gets confirmation. We map
-        // each mode to an existing cue rather than introduce new ones.
-        playCue(next === "auto" ? "viewToggle" : next === "free-fly" ? "boostThump" : "click");
+        // Dedicated audio cues per mode — apOn/apOff/freeFly were
+        // designed for this transition.
+        playCue(
+          next === "auto"
+            ? "apOn"
+            : next === "free-fly"
+              ? "freeFly"
+              : "apOff",
+        );
       },
     });
     this.surface = new SurfaceScene(this.spark, canvas);
