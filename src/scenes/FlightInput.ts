@@ -298,11 +298,12 @@ export class FlightInput {
       this.rollSpring.target = damp(this.rollSpring.target, 0, 2.5, dt);
     } else {
       this.rollSpring.target = clamp(
-        this.rollSpring.target + keyRoll * 2.2 * dt,
+        this.rollSpring.target + keyRoll * 3.5 * dt,
         -ROLL_LIMIT,
         ROLL_LIMIT,
       );
     }
+
 
     // Throttle. W = increase target; S = decrease. Released = ease back to
     // cruise (1.0). All eased so it never snaps.
