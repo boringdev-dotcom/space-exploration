@@ -62,7 +62,13 @@ export interface PostFx {
    *  - grain: replaces the grain strength directly.
    *  - vignette: replaces the vignette strength directly.
    */
-  setBias(bias: { bloomMul?: number; grain?: number; vignette?: number }): void;
+  setBias(bias: {
+    bloomMul?: number;
+    grain?: number;
+    vignette?: number;
+    /** Multiplier on the configured bloom radius (1 = base). */
+    bloomRadiusMul?: number;
+  }): void;
   render(deltaSec: number): void;
   dispose(): void;
 }
@@ -102,33 +108,36 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
 
   let elapsed = 0;
   let baseBloomStrength = 0.85;
+  let baseBloomRadius = 0.6;
   let baseGrain = 0.04;
   let baseVignette = 0.5;
   let bloomMul = 1;
+  let bloomRadiusMul = 1;
 
   const applyBase = (level: "default" | "warp" | "calm") => {
     switch (level) {
       case "warp":
         baseBloomStrength = 1.25;
-        bloom.radius = 0.75;
+        baseBloomRadius = 0.75;
         baseGrain = 0.055;
         baseVignette = 0.55;
         break;
       case "calm":
         baseBloomStrength = 0.6;
-        bloom.radius = 0.45;
+        baseBloomRadius = 0.45;
         baseGrain = 0.03;
         baseVignette = 0.4;
         break;
       case "default":
       default:
         baseBloomStrength = 0.85;
-        bloom.radius = 0.6;
+        baseBloomRadius = 0.6;
         baseGrain = 0.04;
         baseVignette = 0.5;
         break;
     }
     bloom.strength = baseBloomStrength * bloomMul;
+    bloom.radius = baseBloomRadius * bloomRadiusMul;
     (vignette.uniforms.uGrainStrength as { value: number }).value = baseGrain;
     (vignette.uniforms.uVignetteStrength as { value: number }).value = baseVignette;
   };
@@ -152,10 +161,14 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
       applyBase(level);
     },
 
-    setBias({ bloomMul: bm, grain, vignette: vg }) {
+    setBias({ bloomMul: bm, grain, vignette: vg, bloomRadiusMul: brm }) {
       if (bm !== undefined) {
         bloomMul = bm;
         bloom.strength = baseBloomStrength * bloomMul;
+      }
+      if (brm !== undefined) {
+        bloomRadiusMul = brm;
+        bloom.radius = baseBloomRadius * bloomRadiusMul;
       }
       if (grain !== undefined) {
         (vignette.uniforms.uGrainStrength as { value: number }).value = grain;

@@ -96,6 +96,8 @@ export class SceneManager {
   private lastInput: FlightInputSnapshot;
   private bloomBias = 1;
   private grainBias = 0.04;
+  private bloomRadiusBias = 1;
+  private vignetteBias = 0.5;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -547,12 +549,42 @@ export class SceneManager {
 
       // Post-fx + drone breathe with throttle / boost. The mission's own
       // phase feel adds extra bloom bias on top of the input bias.
+      // Speed-driven cruise bloom and atmospheric proximity (C1, C3)
+      // layer in additional bias so the picture warms during entry.
       const phaseBias = this.mission.getDebugSnapshot().feel.bloomBias;
-      const targetBloomMul = 1 + this.lastInput.boost * 0.35 + phaseBias;
+      const speedKmS = this.mission.getTelemetry().speedKmS; // km/s in HUD
+      // Map cruise speed (in km/s) to a 0..0.5 bias. Cruise tops out near
+      // 6,000 km/s in our scale, so /3000 hits 1 by mid-cruise; clamp.
+      const speedNorm = Math.max(0, Math.min(1, speedKmS / 3000));
+      const proximity = this.mission.getAtmosphericProximity(); // 0..1
+      const targetBloomMul =
+        1 +
+        this.lastInput.boost * 0.45 +
+        phaseBias +
+        speedNorm * 0.18 +
+        proximity * 0.55;
       this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
-      const targetGrain = 0.04 + this.lastInput.boost * 0.025;
+      const targetGrain =
+        0.04 + this.lastInput.boost * 0.03 + proximity * 0.025;
       this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
-      this.post.setBias({ bloomMul: this.bloomBias, grain: this.grainBias });
+      // Bloom radius widens with boost and proximity (boost = "warp",
+      // proximity = "atmospheric flare").
+      const targetRadiusMul =
+        1 + this.lastInput.boost * 0.35 + proximity * 0.4 + speedNorm * 0.15;
+      this.bloomRadiusBias = damp(
+        this.bloomRadiusBias,
+        targetRadiusMul,
+        5,
+        delta,
+      );
+      const targetVignette = 0.5 - proximity * 0.22 + this.lastInput.boost * 0.05;
+      this.vignetteBias = damp(this.vignetteBias, targetVignette, 5, delta);
+      this.post.setBias({
+        bloomMul: this.bloomBias,
+        grain: this.grainBias,
+        bloomRadiusMul: this.bloomRadiusBias,
+        vignette: this.vignetteBias,
+      });
       setDroneFlightState(this.lastInput.throttle, this.lastInput.boost);
 
       this.inputListeners.forEach((cb) => cb(this.lastInput));

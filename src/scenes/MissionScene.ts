@@ -465,6 +465,27 @@ export class MissionScene implements SceneSlot {
     return this._controlMode;
   }
 
+  /**
+   * Atmospheric proximity factor (0..1) — climbs as the ship approaches
+   * either Earth or the destination surface. Used by the post-fx
+   * pipeline to push bloom + vignette during atmospheric entry, selling
+   * the "burning into atmosphere" feel without a custom shader.
+   */
+  getAtmosphericProximity(): number {
+    const ship = this.dynamics.ship;
+    const altE = this.phaseController.altitudeAboveEarth(ship);
+    const altD = this.phaseController.altitudeAboveDestination(ship);
+    // Ramp from 0 at 30u AGL up to 1 at the surface (0u). Take the
+    // smallest of the two so we react to whichever body is closer.
+    const factor = (alt: number): number => {
+      if (alt <= 0) return 1;
+      if (alt >= 30) return 0;
+      const t = 1 - alt / 30;
+      return t * t * (3 - 2 * t); // smoothstep
+    };
+    return Math.max(factor(altE), factor(altD));
+  }
+
   /** Set the control mode explicitly. Idempotent; emits onControlModeChange. */
   setControlMode(mode: ControlMode): void {
     if (mode === this._controlMode) return;

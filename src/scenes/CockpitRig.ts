@@ -134,6 +134,8 @@ export class CockpitRig {
   private throttle = 1;
   private boost = 0;
   private plumeSpeedNorm = 0;
+  /** Damped speed-norm used to fade cockpit windshield slightly at high speed. */
+  private cockpitSpeedFade = 0;
 
   /** Speed-driven FOV bias (degrees, added on top of profile FOV). */
   private speedFovBias = 0;
@@ -580,6 +582,21 @@ export class CockpitRig {
     if (this.plume.group.visible) {
       this.plume.setState(this.throttle, this.boost, this.plumeSpeedNorm);
       this.plume.update(dt, elapsed);
+    }
+
+    // Cockpit windshield "transparency" pop at high speed (C4): the
+    // splat fades from full opacity at rest to ~85% at top speed,
+    // strengthening the sensation of motion through the glass.
+    this.cockpitSpeedFade = damp(
+      this.cockpitSpeedFade,
+      this.plumeSpeedNorm,
+      4,
+      dt,
+    );
+    if (this.cockpitSplat) {
+      const speedMul = 1 - 0.15 * this.cockpitSpeedFade;
+      this.cockpitSplat.opacity =
+        this.cockpitTargetOpacity * this.cockpitFadeIn * speedMul;
     }
 
     // Cockpit interior is rock-steady in cockpit view: a wobbling cabin
