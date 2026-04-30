@@ -140,6 +140,18 @@ export function mountFlightHud(args: Args): () => void {
   const pfdBoostFill = document.getElementById("pfd-boost-fill");
   const pfdBoostValue = document.getElementById("pfd-boost-value");
 
+  // -------------------------------------------------------------------
+  // Primary Flight Display constants
+  // -------------------------------------------------------------------
+
+  /** PFD layout constants — tuned to fit the SVG viewBox and tape height. */
+  const PFD_HORIZON_PX_PER_DEG = 4; // pitch ladder spacing
+  const PFD_HEADING_PX_PER_DEG = 10; // heading strip
+  const PFD_AIRSPEED_PX_PER_KMS = 18;
+  const PFD_AIRSPEED_TICK_KMS = 2; // tick every 2 km/s
+  const PFD_ALTITUDE_TICK_KM = 200;
+  const PFD_ALTITUDE_PX_PER_KM = 0.18;
+
   // Build static PFD ticks once on mount.
   initPfdStatics();
 
@@ -218,14 +230,6 @@ export function mountFlightHud(args: Args): () => void {
   // -------------------------------------------------------------------
   // Primary Flight Display
   // -------------------------------------------------------------------
-
-  /** PFD layout constants — tuned to fit the SVG viewBox and tape height. */
-  const PFD_HORIZON_PX_PER_DEG = 4; // pitch ladder spacing
-  const PFD_HEADING_PX_PER_DEG = 10; // heading strip
-  const PFD_AIRSPEED_PX_PER_KMS = 18;
-  const PFD_AIRSPEED_TICK_KMS = 2; // tick every 2 km/s
-  const PFD_ALTITUDE_TICK_KM = 200;
-  const PFD_ALTITUDE_PX_PER_KM = 0.18;
 
   function initPfdStatics(): void {
     if (!pfdRoot) return;
