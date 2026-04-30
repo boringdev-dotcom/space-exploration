@@ -441,13 +441,14 @@ export class CockpitRig {
       this.plume.update(dt, elapsed);
     }
 
-    // Cockpit splat slow drift — "cabin breathing" — so the interior never
-    // feels static. Only meaningful in cockpit mode.
-    if (this.cockpitSplatGroup && cockpitWeight > 0.001) {
-      const breath = Math.sin(elapsed * 1.05) * 0.0035 * cockpitWeight;
-      const swayRoll = noise1D(elapsed * 0.18, 12.5) * 0.012 * cockpitWeight;
-      this.cockpitSplatGroup.position.z = breath;
-      this.cockpitSplatGroup.rotation.z = swayRoll;
+    // Cockpit interior is rock-steady in cockpit view: a wobbling cabin
+    // (previous "cabin breathing" + idle roll sway on the splat) reads as
+    // motion sickness rather than realism, since the camera IS the pilot's
+    // head. Pin the splat group to identity every frame so any leftover
+    // transform from earlier behaviour is cleared.
+    if (this.cockpitSplatGroup) {
+      this.cockpitSplatGroup.position.set(0, 0, 0);
+      this.cockpitSplatGroup.rotation.set(0, 0, 0);
     }
   }
 
