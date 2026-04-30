@@ -38,6 +38,30 @@ export interface FlightInputSnapshot {
   headLookYaw: number;
   /** Head-look pitch offset (radians, ±40°). */
   headLookPitch: number;
+  /** Held: brake — damps velocity to zero. */
+  brake: boolean;
+  /** Held: retrograde-hold — slerp ship attitude toward -velocity. */
+  retrograde: boolean;
+  /** Held: prograde-hold — slerp ship attitude toward +velocity. */
+  prograde: boolean;
+  /** Held: level horizon — zero roll, hold horizontal pitch. */
+  level: boolean;
+  /** Held: look-back — flicks head-look 180° behind. */
+  lookBack: boolean;
+}
+
+/** Edge-triggered callbacks emitted alongside the per-frame snapshot. */
+export interface FlightInputEvents {
+  /** First time the player touches a steering key in the session. */
+  onAnyDeliberateInput?: () => void;
+  /** Tab keydown — caller toggles autopilot. */
+  onAutopilotToggle?: () => void;
+  /** F keydown — caller toggles free-fly. */
+  onFreeFlyToggle?: () => void;
+  /** 1/2/3 keydown — caller sets view directly. */
+  onSetView?: (mode: "cockpit" | "chase" | "external") => void;
+  /** H keydown — caller toggles help overlay. */
+  onToggleHelp?: () => void;
 }
 
 const PITCH_LIMIT = 0.38; // radians, ~22°
@@ -71,7 +95,7 @@ export class FlightInput {
   private boostHeld = false;
   private boostFuel = 1; // 0..1
 
-  // Key state
+  // Key state — analog (held).
   private keyW = false;
   private keyS = false;
   private keyQ = false;
@@ -81,6 +105,19 @@ export class FlightInput {
   private keyLeft = false;
   private keyRight = false;
   private keySpace = false;
+  private keyB = false; // brake
+  private keyR = false; // retrograde
+  private keyT = false; // prograde
+  private keyZ = false; // level horizon
+  private keyV = false; // look-back
+
+  // Edge-triggered events the host wires into.
+  private inputEvents: FlightInputEvents = {};
+  /** Set true once any deliberate steering input has been observed. */
+  private deliberateFired = false;
+
+  /** Mouse sensitivity multiplier (settable for future settings panel). */
+  private mouseSensScale = 1;
 
   // Pending mouse delta (consumed each frame).
   private pendingMouseX = 0;
@@ -132,7 +169,18 @@ export class FlightInput {
     this.throttleTarget = 1;
     this.boostFuel = 1;
     this.boostHeld = false;
+    this.deliberateFired = false;
     this.releaseAll();
+  }
+
+  /** Wire edge-triggered callbacks (autopilot toggle, view set, help, etc.). */
+  setEvents(events: FlightInputEvents): void {
+    this.inputEvents = events;
+  }
+
+  /** Multiplier on mouse sensitivity. 1 = default. */
+  setMouseSensitivity(scale: number): void {
+    this.mouseSensScale = Math.max(0.1, Math.min(4, scale));
   }
 
   requestPointerLock(): void {
@@ -190,11 +238,27 @@ export class FlightInput {
 
     // Head-look — mouse delta only, independent of ship steering. Mouse Y
     // down → look down → -rotateX (so we negate movementY).
-    if (this.headLookEnabled) {
+    if (this.keyV) {
+      // Look-back: snap targets to 180° behind. The springs swing
+      // smoothly without us touching `value` directly.
+      this.headLookYawSpring.target = damp(
+        this.headLookYawSpring.target,
+        Math.PI,
+        9,
+        dt,
+      );
+      this.headLookPitchSpring.target = damp(
+        this.headLookPitchSpring.target,
+        0,
+        9,
+        dt,
+      );
+    } else if (this.headLookEnabled) {
       const expoCurve = (v: number) =>
         Math.sign(v) * Math.pow(Math.abs(v), 1.4);
-      const dyaw = expoCurve(this.pendingMouseX * MOUSE_SENSITIVITY);
-      const dpitch = expoCurve(this.pendingMouseY * MOUSE_SENSITIVITY);
+      const sens = MOUSE_SENSITIVITY * this.mouseSensScale;
+      const dyaw = expoCurve(this.pendingMouseX * sens);
+      const dpitch = expoCurve(this.pendingMouseY * sens);
 
       this.headLookYawSpring.target = clamp(
         this.headLookYawSpring.target - dyaw,
@@ -275,6 +339,11 @@ export class FlightInput {
       boosting: this.boostHeld,
       headLookYaw: this.headLookYawSpring.value,
       headLookPitch: this.headLookPitchSpring.value,
+      brake: this.keyB,
+      retrograde: this.keyR,
+      prograde: this.keyT,
+      level: this.keyZ,
+      lookBack: this.keyV,
     };
   }
 
@@ -283,6 +352,17 @@ export class FlightInput {
     this.keyQ = this.keyE = false;
     this.keyUp = this.keyDown = this.keyLeft = this.keyRight = false;
     this.keySpace = false;
+    this.keyB = this.keyR = this.keyT = this.keyZ = this.keyV = false;
+  }
+
+  /**
+   * Emit `onAnyDeliberateInput` exactly once per session the first time the
+   * player taps a flight key. Used by SceneManager to flip auto → manual.
+   */
+  private fireDeliberate(): void {
+    if (this.deliberateFired) return;
+    this.deliberateFired = true;
+    this.inputEvents.onAnyDeliberateInput?.();
   }
 
   private readonly onLockChange = (): void => {
@@ -297,16 +377,49 @@ export class FlightInput {
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (!this.active) return;
+    if (e.repeat) {
+      // Held: continue normal analog handling, no edge fire.
+      return;
+    }
     switch (e.code) {
-      case "KeyW": this.keyW = true; break;
-      case "KeyS": this.keyS = true; break;
-      case "KeyQ": this.keyQ = true; break;
-      case "KeyE": this.keyE = true; break;
-      case "ArrowUp": this.keyUp = true; break;
-      case "ArrowDown": this.keyDown = true; break;
-      case "ArrowLeft": this.keyLeft = true; break;
-      case "ArrowRight": this.keyRight = true; break;
-      case "Space": this.keySpace = true; e.preventDefault(); break;
+      case "KeyW": this.keyW = true; this.fireDeliberate(); break;
+      case "KeyS": this.keyS = true; this.fireDeliberate(); break;
+      case "KeyQ": this.keyQ = true; this.fireDeliberate(); break;
+      case "KeyE": this.keyE = true; this.fireDeliberate(); break;
+      case "ArrowUp": this.keyUp = true; this.fireDeliberate(); break;
+      case "ArrowDown": this.keyDown = true; this.fireDeliberate(); break;
+      case "ArrowLeft": this.keyLeft = true; this.fireDeliberate(); break;
+      case "ArrowRight": this.keyRight = true; this.fireDeliberate(); break;
+      case "Space":
+        this.keySpace = true;
+        this.fireDeliberate();
+        e.preventDefault();
+        break;
+      case "KeyB": this.keyB = true; this.fireDeliberate(); break;
+      case "KeyR": this.keyR = true; this.fireDeliberate(); break;
+      case "KeyT": this.keyT = true; this.fireDeliberate(); break;
+      case "KeyZ": this.keyZ = true; this.fireDeliberate(); break;
+      case "KeyV": this.keyV = true; break;
+      // Edge-only events.
+      case "Tab":
+        e.preventDefault();
+        this.inputEvents.onAutopilotToggle?.();
+        break;
+      case "KeyF":
+        this.inputEvents.onFreeFlyToggle?.();
+        break;
+      case "KeyH":
+        this.inputEvents.onToggleHelp?.();
+        break;
+      case "Digit1":
+        this.inputEvents.onSetView?.("cockpit");
+        break;
+      case "Digit2":
+        this.inputEvents.onSetView?.("chase");
+        break;
+      case "Digit3":
+        this.inputEvents.onSetView?.("external");
+        break;
     }
   };
 
@@ -321,6 +434,11 @@ export class FlightInput {
       case "ArrowLeft": this.keyLeft = false; break;
       case "ArrowRight": this.keyRight = false; break;
       case "Space": this.keySpace = false; break;
+      case "KeyB": this.keyB = false; break;
+      case "KeyR": this.keyR = false; break;
+      case "KeyT": this.keyT = false; break;
+      case "KeyZ": this.keyZ = false; break;
+      case "KeyV": this.keyV = false; break;
     }
   };
 }

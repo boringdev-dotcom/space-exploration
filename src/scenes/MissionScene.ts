@@ -69,6 +69,29 @@ export interface MissionInput extends FlightDynamicsInput {
   headLookPitch: number;
 }
 
+/**
+ * Held flight-assist booleans driven by the player. All clear unless the
+ * player is holding the corresponding key. Mutually exclusive in priority:
+ * brake > retrograde > prograde > level.
+ */
+export interface FlightAssist {
+  brake: boolean;
+  retrograde: boolean;
+  prograde: boolean;
+  level: boolean;
+}
+
+/**
+ * Control mode for the player's ship.
+ *
+ *   - `auto`     : Existing scripted autopilot (cinematic preserve).
+ *   - `manual`   : Player owns pitch/yaw/roll/throttle; phase machine
+ *                  still observes ship state for HUD/audio cues.
+ *   - `free-fly` : Manual + phase machine paused. Player can fly anywhere
+ *                  in the renderable region (soft tether at 10000u).
+ */
+export type ControlMode = "auto" | "manual" | "free-fly";
+
 export interface MissionTelemetry {
   phase: MissionPhase;
   speedKmS: number;
@@ -88,6 +111,8 @@ export interface MissionEvents {
   onPhaseChange?: (next: MissionPhase, prev: MissionPhase) => void;
   /** Fired once when the ship has fully touched down and walking should begin. */
   onTouchdown?: (info: { spawnPose: { position: THREE.Vector3; quaternion: THREE.Quaternion } }) => void;
+  /** Fired whenever {@link MissionScene.setControlMode} or the toggles change the mode. */
+  onControlModeChange?: (next: ControlMode, prev: ControlMode) => void;
 }
 
 export class MissionScene implements SceneSlot {
@@ -126,8 +151,21 @@ export class MissionScene implements SceneSlot {
     headLookPitch: 0,
   };
 
+  /** Held assist booleans. Cleared every frame from the input snapshot. */
+  private assist: FlightAssist = {
+    brake: false,
+    retrograde: false,
+    prograde: false,
+    level: false,
+  };
+
+  /** Current control mode. See {@link ControlMode}. */
+  private _controlMode: ControlMode = "auto";
+
   private liftoffElapsed = 0;
   private readonly LIFTOFF_DURATION = 6;
+  /** Reduced canned-liftoff duration once the player has taken control. */
+  private readonly LIFTOFF_DURATION_QUICK = 2;
 
   /** Latest autopilot throttle value (0..2) — used for plume + shake feel. */
   private autopilotThrottle = 0;
@@ -298,10 +336,19 @@ export class MissionScene implements SceneSlot {
     this.currentPlanet = planet;
     this.phaseController.forcePhase("liftoff");
     this.phaseController.ignited = false;
+    this.phaseController.paused = false;
     this.liftoffElapsed = 0;
     this.touchdownFiredHandoff = false;
     this.touchdownTween = null;
     this.surfaceFade = 0;
+    // Each new mission starts in autopilot. The player flips to manual
+    // by touching any flight key (wired in SceneManager).
+    if (this._controlMode !== "auto") {
+      const prev = this._controlMode;
+      this._controlMode = "auto";
+      this.events.onControlModeChange?.("auto", prev);
+    }
+    this.assist = { brake: false, retrograde: false, prograde: false, level: false };
     this.destinationModelLoadId++;
     this.surfaceSplatLoadId++;
     this.clearDestinationModel();
@@ -406,6 +453,76 @@ export class MissionScene implements SceneSlot {
     this.input = input;
   }
 
+  /** Set per-frame held-assist flags (brake, retrograde, prograde, level). */
+  setFlightAssist(assist: FlightAssist): void {
+    this.assist = assist;
+  }
+
+  /** Read current control mode (auto / manual / free-fly). */
+  get controlMode(): ControlMode {
+    return this._controlMode;
+  }
+
+  /** Set the control mode explicitly. Idempotent; emits onControlModeChange. */
+  setControlMode(mode: ControlMode): void {
+    if (mode === this._controlMode) return;
+    const prev = this._controlMode;
+    this._controlMode = mode;
+    // Phase machine paused only in free-fly so the player can drift past
+    // the destination without phase progression interfering.
+    this.phaseController.paused = mode === "free-fly";
+    // Returning from free-fly to manual/auto resumes the phase machine; if
+    // the ship is far from any body, snap phase to cruise so the HUD is
+    // sensible.
+    if (prev === "free-fly" && mode !== "free-fly") {
+      const earthAlt = this.phaseController.altitudeAboveEarth(this.dynamics.ship);
+      if (earthAlt > 8) {
+        this.phaseController.forcePhase("cruise");
+      }
+    }
+    // If we're toggling auto → manual mid-canned-liftoff, end the canned arc
+    // so the player has authority immediately.
+    if (mode !== "auto" && this.dynamics.frozen && this.phaseController.phase === "liftoff") {
+      this.exitCannedLiftoff();
+    }
+    this.events.onControlModeChange?.(mode, prev);
+  }
+
+  /** Toggle between manual and auto. Free-fly is unaffected. */
+  toggleAutopilot(): void {
+    if (this._controlMode === "free-fly") {
+      // Tab from free-fly returns to manual (preserves player ownership).
+      this.setControlMode("manual");
+      return;
+    }
+    this.setControlMode(this._controlMode === "auto" ? "manual" : "auto");
+  }
+
+  /** Toggle free-fly. Releasing free-fly returns to manual. */
+  toggleFreeFly(): void {
+    this.setControlMode(
+      this._controlMode === "free-fly" ? "manual" : "free-fly",
+    );
+  }
+
+  /**
+   * Force-end the canned liftoff arc. Frees the dynamics integrator and
+   * gives the ship a small forward impulse so the player doesn't sit
+   * stationary the moment they take control.
+   */
+  private exitCannedLiftoff(): void {
+    const ship = this.dynamics.ship;
+    this.dynamics.frozen = false;
+    // Forward impulse along ship-forward, scaled by where we are in the
+    // canned arc. Early exit = small impulse, late exit = full cruise impulse.
+    const t = clamp01(this.liftoffElapsed / this.LIFTOFF_DURATION_QUICK);
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(ship.quaternion);
+    ship.velocity.copy(fwd).multiplyScalar(4 + 4 * t);
+    // Make sure the phase machine can advance out of liftoff once altitude
+    // climbs past the threshold.
+    this.liftoffElapsed = this.LIFTOFF_DURATION;
+  }
+
   update(deltaSec: number, elapsedSec: number): void {
     this.earth.update(deltaSec, elapsedSec);
 
@@ -430,19 +547,23 @@ export class MissionScene implements SceneSlot {
       );
     }
 
-    // Liftoff is canned; everything else is on the autopilot.
+    // Liftoff is canned in `auto` mode; in manual / free-fly the player
+    // takes the stick the moment the opening cinematic completes.
     if (this.phaseController.phase === "liftoff" && this.ignited) {
       // During the brief "exterior_intro" stage we hold the ship still on
-      // the pad so the camera has time to read. After that, the canned
-      // liftoff sequence takes over.
+      // the pad so the camera has time to read.
       if (this.openingStage === "exterior_intro") {
-        // Keep ship pinned to the pad pose; no integration.
         this.autopilotThrottle = 0;
-      } else {
+      } else if (this._controlMode === "auto") {
         this.driveLiftoff(deltaSec);
+      } else {
+        // Manual / free-fly during liftoff: skip the canned arc entirely.
+        // The dynamics integrator owns the ship from frame zero.
+        if (this.dynamics.frozen) this.exitCannedLiftoff();
+        this.runFlight(deltaSec);
       }
     } else if (this.phaseController.phase !== "liftoff") {
-      this.runAutopilot(deltaSec);
+      this.runFlight(deltaSec);
     }
 
     // Drive the opening cinematic stage machine.
@@ -571,15 +692,148 @@ export class MissionScene implements SceneSlot {
   }
 
   /* ============================================================
-   * Autopilot
+   * Flight loop — autopilot OR manual/free-fly
    * ============================================================ */
 
   /**
-   * Auto-fly the ship from cruise → approach → touchdown. The player's
-   * mouse stays alive for head-look but doesn't steer the rocket — the
-   * autopilot points the nose at the destination, holds cruise throttle,
-   * eases off as it approaches, and tilts vertical for a soft hover-down
-   * landing.
+   * Drive the ship one frame. Branches on `_controlMode`:
+   *   - `auto`     : runs the existing scripted autopilot (slerp at dest,
+   *                  velocity damping in approach, hover-down on touchdown).
+   *   - `manual`   : routes the player's input snapshot straight into the
+   *                  dynamics integrator. Held-assist (brake / retrograde /
+   *                  prograde / level horizon) layers on top.
+   *   - `free-fly` : same as manual, plus a soft tether at 10000 units that
+   *                  pulls the ship back toward Earth so it can never escape
+   *                  the renderable region.
+   */
+  private runFlight(deltaSec: number): void {
+    if (this._controlMode === "auto") {
+      this.runAutopilot(deltaSec);
+      return;
+    }
+    this.runManual(deltaSec);
+  }
+
+  /**
+   * Manual flight: the player's input rate commands drive the dynamics
+   * integrator directly. Held-assist (brake/retro/pro/level) takes priority
+   * over throttle-driven motion in that order.
+   */
+  private runManual(deltaSec: number): void {
+    const ship = this.dynamics.ship;
+    this.dynamics.frozen = false;
+
+    // Held-assist (priority order: brake > retrograde > prograde > level).
+    // Each behaviour mutates attitude and/or velocity BEFORE the dynamics
+    // step so the player's WASD/throttle still composes naturally on top.
+    if (this.assist.brake) {
+      // Smooth velocity-kill — `dampVec3` toward zero with a high lambda.
+      // Player still has attitude authority (pitch/yaw/roll springs) so
+      // they can re-orient while braking.
+      const k = 1 - Math.exp(-4.0 * deltaSec);
+      ship.velocity.multiplyScalar(1 - k);
+      this.autopilotThrottle = 0; // no plume while braking
+      this.dynamics.step(
+        {
+          pitchRate: this.input.pitchRate,
+          yawRate: this.input.yawRate,
+          rollRate: this.input.rollRate,
+          throttle: 0,
+          boost: 0,
+        },
+        deltaSec,
+      );
+    } else if (this.assist.retrograde && ship.velocity.lengthSq() > 0.0025) {
+      // Snap the nose toward -velocity. Useful for "flip and burn".
+      this._scratchDesiredFwd.copy(ship.velocity).normalize().negate();
+      this.slerpAttitude(this._scratchDesiredFwd, deltaSec, 3.0);
+      this.autopilotThrottle = this.input.throttle;
+      this.dynamics.step(
+        {
+          // Suppress player attitude rates so the slerp can settle cleanly.
+          pitchRate: 0,
+          yawRate: 0,
+          rollRate: 0,
+          throttle: this.input.throttle,
+          boost: this.input.boost,
+        },
+        deltaSec,
+      );
+    } else if (this.assist.prograde && ship.velocity.lengthSq() > 0.0025) {
+      // Snap the nose toward +velocity. Useful to re-align after rotating.
+      this._scratchDesiredFwd.copy(ship.velocity).normalize();
+      this.slerpAttitude(this._scratchDesiredFwd, deltaSec, 3.0);
+      this.autopilotThrottle = this.input.throttle;
+      this.dynamics.step(
+        {
+          pitchRate: 0,
+          yawRate: 0,
+          rollRate: 0,
+          throttle: this.input.throttle,
+          boost: this.input.boost,
+        },
+        deltaSec,
+      );
+    } else if (this.assist.level) {
+      // Zero roll: keep the current forward, but rebuild the quaternion
+      // with world-up as the reference up so any roll component is purged.
+      this._scratchDesiredFwd
+        .set(0, 0, -1)
+        .applyQuaternion(ship.quaternion)
+        .normalize();
+      this.slerpAttitude(this._scratchDesiredFwd, deltaSec, 4.0);
+      this.autopilotThrottle = this.input.throttle;
+      this.dynamics.step(
+        {
+          // Player retains pitch/yaw authority while levelling, but roll
+          // is forced.
+          pitchRate: this.input.pitchRate,
+          yawRate: this.input.yawRate,
+          rollRate: 0,
+          throttle: this.input.throttle,
+          boost: this.input.boost,
+        },
+        deltaSec,
+      );
+    } else {
+      // Vanilla manual flight — full player authority.
+      this.autopilotThrottle = this.input.throttle;
+      this.dynamics.step(
+        {
+          pitchRate: this.input.pitchRate,
+          yawRate: this.input.yawRate,
+          rollRate: this.input.rollRate,
+          throttle: this.input.throttle,
+          boost: this.input.boost,
+        },
+        deltaSec,
+      );
+    }
+
+    // Soft tether for free-fly: if the player has wandered close to the
+    // far plane, apply a gentle radial pull back toward Earth so the
+    // scene never disappears off-screen.
+    if (this._controlMode === "free-fly") {
+      const dist = ship.position.length();
+      const SOFT_RADIUS = 10000;
+      if (dist > SOFT_RADIUS) {
+        const overshoot = (dist - SOFT_RADIUS) / 2000; // 0..1+
+        const pull = Math.min(2.0, overshoot * 2.0); // u/s² magnitude
+        // Vector from ship → Earth centre, normalized.
+        const toEarth = this._scratchDesiredFwd
+          .copy(ship.position)
+          .normalize()
+          .multiplyScalar(-pull * deltaSec);
+        ship.velocity.add(toEarth);
+      }
+    }
+  }
+
+  /**
+   * Original scripted autopilot: ship pointed at destination through cruise,
+   * velocity damped on approach, hover-down on touchdown. Preserved as the
+   * default `auto` control mode so the launch cinematic and "hands-off"
+   * experience remain intact.
    */
   private runAutopilot(deltaSec: number): void {
     const ship = this.dynamics.ship;

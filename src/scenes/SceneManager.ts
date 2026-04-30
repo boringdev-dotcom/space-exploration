@@ -89,6 +89,8 @@ export class SceneManager {
   private flashEl: HTMLElement | null = null;
   private viewToggleListeners: Array<(mode: "cockpit" | "chase" | "external") => void> = [];
   private inputListeners: Array<(snapshot: FlightInputSnapshot) => void> = [];
+  private controlModeListeners: Array<(mode: "auto" | "manual" | "free-fly") => void> = [];
+  private helpToggleListeners: Array<() => void> = [];
 
   private flightInput: FlightInput;
   private lastInput: FlightInputSnapshot;
@@ -145,6 +147,12 @@ export class SceneManager {
         this.surface.setSpawnPose?.(spawnPose);
         this.setState("surface");
       },
+      onControlModeChange: (next) => {
+        this.controlModeListeners.forEach((cb) => cb(next));
+        // Quick audio feedback so the player gets confirmation. We map
+        // each mode to an existing cue rather than introduce new ones.
+        playCue(next === "auto" ? "viewToggle" : next === "free-fly" ? "boostThump" : "click");
+      },
     });
     this.surface = new SurfaceScene(this.spark, canvas);
 
@@ -153,7 +161,39 @@ export class SceneManager {
       pitch: 0, yaw: 0, roll: 0,
       throttle: 1, boost: 0, boostCharge: 1, boosting: false,
       headLookYaw: 0, headLookPitch: 0,
+      brake: false, retrograde: false, prograde: false, level: false,
+      lookBack: false,
     };
+
+    // Wire FlightInput edge-triggered events into the mission scene.
+    this.flightInput.setEvents({
+      onAnyDeliberateInput: () => {
+        if (this.state !== "mission") return;
+        // First flight key pressed → flip auto → manual. Free-fly is
+        // preserved (player must explicitly leave free-fly via F or Tab).
+        if (this.mission.controlMode === "auto") {
+          this.mission.setControlMode("manual");
+        }
+      },
+      onAutopilotToggle: () => {
+        if (this.state !== "mission") return;
+        this.mission.toggleAutopilot();
+      },
+      onFreeFlyToggle: () => {
+        if (this.state !== "mission") return;
+        this.mission.toggleFreeFly();
+      },
+      onSetView: (mode) => {
+        if (this.state !== "mission") return;
+        this.mission.setView(mode);
+        playCue("viewToggle");
+        this.viewToggleListeners.forEach((cb) => cb(mode));
+      },
+      onToggleHelp: () => {
+        if (this.state !== "mission") return;
+        this.helpToggleListeners.forEach((cb) => cb());
+      },
+    });
 
     this.active = this.launch;
     this.launch.enter();
@@ -201,6 +241,33 @@ export class SceneManager {
     return () => {
       this.inputListeners = this.inputListeners.filter((x) => x !== cb);
     };
+  }
+
+  /** HUD subscribes here for control-mode changes (auto / manual / free-fly). */
+  onControlModeChange(
+    cb: (mode: "auto" | "manual" | "free-fly") => void,
+  ): () => void {
+    this.controlModeListeners.push(cb);
+    return () => {
+      this.controlModeListeners = this.controlModeListeners.filter(
+        (x) => x !== cb,
+      );
+    };
+  }
+
+  /** HUD subscribes here to be notified when the player presses H. */
+  onHelpToggle(cb: () => void): () => void {
+    this.helpToggleListeners.push(cb);
+    return () => {
+      this.helpToggleListeners = this.helpToggleListeners.filter(
+        (x) => x !== cb,
+      );
+    };
+  }
+
+  /** Read current control mode (for HUD initial render). */
+  getControlMode(): "auto" | "manual" | "free-fly" {
+    return this.mission.controlMode;
   }
 
   getFlightViewMode(): "cockpit" | "chase" | "external" {
@@ -459,6 +526,13 @@ export class SceneManager {
         boost: this.lastInput.boost,
         headLookYaw: this.lastInput.headLookYaw,
         headLookPitch: this.lastInput.headLookPitch,
+      });
+      // Held flight-assist booleans (brake / retro / pro / level).
+      this.mission.setFlightAssist({
+        brake: this.lastInput.brake,
+        retrograde: this.lastInput.retrograde,
+        prograde: this.lastInput.prograde,
+        level: this.lastInput.level,
       });
 
       // Post-fx + drone breathe with throttle / boost. The mission's own

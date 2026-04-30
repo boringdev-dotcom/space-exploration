@@ -68,6 +68,14 @@ export class PhaseController {
   /** True after the player has fired the engines in liftoff. */
   ignited = false;
 
+  /**
+   * When true, {@link update} is a no-op — the phase machine freezes at
+   * its current value and ignores ship state. Used by the free-flight
+   * mode so the player can fly past the destination without phase
+   * progression triggering "approach" / "touchdown" feel changes.
+   */
+  paused = false;
+
   constructor(opts: PhaseControllerOpts, events: PhaseEvents = {}) {
     this.opts = {
       liftoffHandoffAltitude: 8,
@@ -131,6 +139,7 @@ export class PhaseController {
    * Returns the (possibly updated) current phase.
    */
   update(ship: ShipState): MissionPhase {
+    if (this.paused) return this._phase;
     switch (this._phase) {
       case "liftoff": {
         const altitude = this.altitudeAboveEarth(ship);
