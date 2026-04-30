@@ -89,6 +89,16 @@ export class FlightInput {
   private headLookPitchSpring = new Spring1D(0, 14);
   private headLookEnabled = true;
 
+  /**
+   * Current camera view mode. Drives per-mode head-look behaviour:
+   *   - cockpit: tight ±110° / ±60° limits; releases drift slowly back to
+   *     forward so the pilot's head naturally relaxes.
+   *   - chase / external: wide ±180° / ±80° limits; releases HOLD position
+   *     so the player can drag-set an angle and have the camera stay
+   *     there (MSFS / orbital-cam feel).
+   */
+  private viewMode: "cockpit" | "chase" | "external" = "cockpit";
+
   private throttle = 1;
   private throttleTarget = 1;
 
@@ -221,6 +231,24 @@ export class FlightInput {
   }
 
   /**
+   * Update the current camera view mode. The host (SceneManager) calls
+   * this whenever the player toggles or sets the view directly.
+   *
+   * Side-effect: when transitioning INTO cockpit, snap the head-look
+   * accumulators to 0 so the pilot starts looking forward through the
+   * windshield. Toggling between chase / external preserves the orbit
+   * angle the player set so the camera feels persistent.
+   */
+  setViewMode(mode: "cockpit" | "chase" | "external"): void {
+    if (mode === this.viewMode) return;
+    if (mode === "cockpit" && this.viewMode !== "cockpit") {
+      this.headLookYawSpring.target = 0;
+      this.headLookPitchSpring.target = 0;
+    }
+    this.viewMode = mode;
+  }
+
+  /**
    * Toggle head-look on/off. Off in chase / external camera modes (where
    * mouse should drive orbit cam instead — handled by the rig).
    */
@@ -293,34 +321,54 @@ export class FlightInput {
       // actively dragging. Trackpad-swipe annoyance gone.
       const expoCurve = (v: number) =>
         Math.sign(v) * Math.pow(Math.abs(v), 1.2);
-      const sens = MOUSE_SENSITIVITY * this.mouseSensScale;
+      // Chase / external: a single wrist drag should swing the orbit
+      // camera meaningfully — bump sensitivity 1.4×.
+      const sensMul = this.viewMode === "cockpit" ? 1.0 : 1.4;
+      const sens = MOUSE_SENSITIVITY * this.mouseSensScale * sensMul;
       const dyaw = expoCurve(this.pendingMouseX * sens);
       const dpitch = expoCurve(this.pendingMouseY * sens);
 
+      // Per-mode head-look limits. Cockpit mimics a real pilot's head;
+      // chase / external orbit cleanly through the full sphere.
+      const yawLimit =
+        this.viewMode === "cockpit" ? HEAD_YAW_LIMIT : Math.PI;
+      const pitchLimit =
+        this.viewMode === "cockpit"
+          ? HEAD_PITCH_LIMIT
+          : (80 * Math.PI) / 180;
+
       this.headLookYawSpring.target = clamp(
         this.headLookYawSpring.target - dyaw,
-        -HEAD_YAW_LIMIT,
-        HEAD_YAW_LIMIT,
+        -yawLimit,
+        yawLimit,
       );
       this.headLookPitchSpring.target = clamp(
         this.headLookPitchSpring.target - dpitch,
-        -HEAD_PITCH_LIMIT,
-        HEAD_PITCH_LIMIT,
+        -pitchLimit,
+        pitchLimit,
       );
     } else {
-      // Smoothly recentre when head-look is disabled (e.g. in chase view).
-      this.headLookYawSpring.target = damp(
-        this.headLookYawSpring.target,
-        0,
-        2.5,
-        dt,
-      );
-      this.headLookPitchSpring.target = damp(
-        this.headLookPitchSpring.target,
-        0,
-        2.5,
-        dt,
-      );
+      // Mouse not held. Per-mode release behaviour:
+      //   cockpit: slow drift back to centre — pilot's head naturally
+      //            relaxes forward over a couple of seconds.
+      //   chase / external: HOLD position. The MSFS rule — once you've
+      //            framed the shot with a drag, the camera stays there
+      //            until you drag again or cycle the view.
+      if (this.viewMode === "cockpit") {
+        this.headLookYawSpring.target = damp(
+          this.headLookYawSpring.target,
+          0,
+          1.5,
+          dt,
+        );
+        this.headLookPitchSpring.target = damp(
+          this.headLookPitchSpring.target,
+          0,
+          1.5,
+          dt,
+        );
+      }
+      // chase / external: no recentre — orbit angle persists.
     }
     this.pendingMouseX = 0;
     this.pendingMouseY = 0;
