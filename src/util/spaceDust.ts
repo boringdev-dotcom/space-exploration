@@ -12,8 +12,16 @@ import * as THREE from "three";
  */
 export interface SpaceDust {
   points: THREE.Points;
-  /** Call once per frame with the ship's current world pos + forward axis. */
-  update(shipPos: THREE.Vector3, shipFwd: THREE.Vector3, dt: number): void;
+  /**
+   * Call once per frame with the ship's current world pos + forward axis.
+   * `speedNorm` (0..1) intensifies size + opacity for the "fast" feeling.
+   */
+  update(
+    shipPos: THREE.Vector3,
+    shipFwd: THREE.Vector3,
+    dt: number,
+    speedNorm?: number,
+  ): void;
   dispose(): void;
 }
 
@@ -82,7 +90,16 @@ export function createSpaceDust(opts: SpaceDustOpts = {}): SpaceDust {
 
   const halfLen = length / 2;
 
-  const update: SpaceDust["update"] = (shipPos, shipFwd, _dt) => {
+  const baseSize = size;
+  const baseOpacity = 0.55;
+
+  const update: SpaceDust["update"] = (shipPos, shipFwd, _dt, speedNorm = 0) => {
+    // Visual speed cue (B4): both particle size and opacity climb with
+    // ship speed so cruise doesn't feel like idle. Cheap material tweak,
+    // no buffer mutation.
+    const sNorm = Math.max(0, Math.min(1, speedNorm));
+    material.size = baseSize * (1 + sNorm * 1.6);
+    material.opacity = Math.min(0.95, baseOpacity + sNorm * 0.4);
     // Build a frame around shipFwd: pick a stable up to derive right, then
     // recover the up.
     const fwd = _scratchOffset.copy(shipFwd).normalize();

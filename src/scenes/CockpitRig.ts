@@ -133,6 +133,20 @@ export class CockpitRig {
   /** Throttle/boost set by the host every frame; used to drive the plume. */
   private throttle = 1;
   private boost = 0;
+  private plumeSpeedNorm = 0;
+
+  /** Speed-driven FOV bias (degrees, added on top of profile FOV). */
+  private speedFovBias = 0;
+  /** Transient boost-punch FOV pulse driven by {@link pulseBoostFov}. */
+  private boostFovPulse = 0;
+  private boostFovTween: Tween | null = null;
+  /** Filtered yaw rate (-1..1) used for chase-camera roll-into-yaw bank. */
+  private yawRateForBank = 0;
+
+  /** Damped chase/external camera follower (B2 — camera lag). */
+  private readonly _chaseFollowEye = new THREE.Vector3();
+  private readonly _chaseFollowLook = new THREE.Vector3();
+  private chaseFollowInitialized = false;
 
   /** External shake offset added every frame, in camera-local space. */
   private extraShakeOffset = new THREE.Vector3();
@@ -239,6 +253,11 @@ export class CockpitRig {
       this._viewMode = mode;
       this.viewT = 0;
     }
+    // Clear the chase follower so the next exterior frame seeds from
+    // the live target instead of inheriting a stale follow point from
+    // the previous mode (would look like the camera "snaps" the moment
+    // you toggle into chase).
+    this.chaseFollowInitialized = false;
   }
 
   /** Apply external camera shake on top of the rig motion (in camera-local space). */
@@ -246,10 +265,48 @@ export class CockpitRig {
     this.extraShakeOffset.copy(offset);
   }
 
-  /** Set throttle (0..2) and boost (0..1) so the plume reacts. */
-  setThrottle(throttle: number, boost: number): void {
+  /**
+   * Set throttle (0..2), boost (0..1), and optional speed factor (0..1)
+   * so the engine plume can stretch with both thrust and current speed.
+   */
+  setThrottle(throttle: number, boost: number, speedNorm = 0): void {
     this.throttle = Math.max(0, Math.min(2, throttle));
     this.boost = Math.max(0, Math.min(1, boost));
+    this.plumeSpeedNorm = Math.max(0, Math.min(1, speedNorm));
+  }
+
+  /**
+   * Per-frame speed-driven FOV bias (degrees). Pushed on top of the
+   * profile FOV so the camera widens slightly at high speed for the
+   * "fast" sensation. Typical range: 0..4.
+   */
+  setSpeedFovBias(deg: number): void {
+    this.speedFovBias = Math.max(0, Math.min(8, deg));
+  }
+
+  /**
+   * Trigger a transient FOV pop (default +6° decaying over 0.4s) on
+   * boost engage, à la Microsoft Flight Simulator.
+   */
+  pulseBoostFov(amount = 6, durationSec = 0.4): void {
+    this.boostFovPulse = amount;
+    this.boostFovTween?.cancel();
+    this.boostFovTween = new Tween(durationSec, easeInOutCubic, (eased) => {
+      this.boostFovPulse = amount * (1 - eased);
+    }, () => {
+      this.boostFovPulse = 0;
+    });
+    this.boostFovTween.start();
+  }
+
+  /**
+   * Filtered yaw-rate command (-1..1) used to bank the chase camera
+   * during turns. Visual only — the ship's quaternion is unaffected.
+   */
+  setYawRateForBank(yawRate: number): void {
+    const clamped = Math.max(-1, Math.min(1, yawRate));
+    // Mild low-pass (lambda 4) so the bank doesn't twitch on key-bumps.
+    this.yawRateForBank = damp(this.yawRateForBank, clamped, 4, 1 / 60);
   }
 
   /**
@@ -436,6 +493,29 @@ export class CockpitRig {
       this.cockpitSmoothInitialized = false;
     }
 
+    // Camera lag (B2): in chase + external the camera follower damps
+    // toward the rigid target, producing a cinematic "swing" during
+    // sharp turns. Cockpit is unaffected (the player IS the head).
+    const exteriorWeight = chaseWeight + externalWeight;
+    if (exteriorWeight > 0.001) {
+      if (!this.chaseFollowInitialized) {
+        this._chaseFollowEye.copy(rawEye);
+        this._chaseFollowLook.copy(rawLook);
+        this.chaseFollowInitialized = true;
+      } else {
+        // Position is slightly springier than look so the camera trails
+        // during turns then catches up; look damps faster so the lens
+        // always centres the rocket.
+        dampVec3(this._chaseFollowEye, rawEye, 7, dt);
+        dampVec3(this._chaseFollowLook, rawLook, 11, dt);
+      }
+      // Blend the followed pose proportionally to exterior weight.
+      rawEye.lerp(this._chaseFollowEye, exteriorWeight);
+      rawLook.lerp(this._chaseFollowLook, exteriorWeight);
+    } else {
+      this.chaseFollowInitialized = false;
+    }
+
     this.camera.position
       .copy(rawEye)
       .add(this._idleSwayPos)
@@ -443,13 +523,28 @@ export class CockpitRig {
 
     this.camera.lookAt(rawLook);
 
-    // FOV is part of the profile.
+    // FOV is part of the profile, plus a per-frame speed bias and an
+    // optional transient boost punch so the camera widens at high speed.
     const prevFov = this.profileFov(this._prevViewMode);
     const curFov = this.profileFov(this._viewMode);
-    const targetFov = prevFov + (curFov - prevFov) * tBlend;
+    const baseFov = prevFov + (curFov - prevFov) * tBlend;
+    const targetFov = baseFov + this.speedFovBias + this.boostFovPulse;
     if (Math.abs(this.camera.fov - targetFov) > 0.01) {
       this.camera.fov = targetFov;
       this.camera.updateProjectionMatrix();
+    }
+    this.boostFovTween?.update(dt);
+
+    // Visual roll-into-yaw bank for chase + external (B3): rotate the
+    // camera around its forward by a small angle proportional to the
+    // (filtered) yaw rate. We do this AFTER the lookAt so the lens
+    // banks visibly without affecting the ship's actual roll axis.
+    if (exteriorWeight > 0.001 && Math.abs(this.yawRateForBank) > 0.001) {
+      const bankRad = -this.yawRateForBank * 0.25 * exteriorWeight; // ±0.25 rad ≈ ±14°
+      // Camera-local Z is forward; rotateZ rotates around its own forward
+      // axis ⇒ visual roll. Note: lookAt above already set the up vector
+      // to world Y, so this banking sticks.
+      this.camera.rotateZ(bankRad);
     }
 
     // Cockpit head-look: in cockpit mode the player can pan their head
@@ -483,7 +578,7 @@ export class CockpitRig {
     this.plume.group.visible =
       this.chaseGroup.visible && this.throttle > 0.05;
     if (this.plume.group.visible) {
-      this.plume.setState(this.throttle, this.boost);
+      this.plume.setState(this.throttle, this.boost, this.plumeSpeedNorm);
       this.plume.update(dt, elapsed);
     }
 

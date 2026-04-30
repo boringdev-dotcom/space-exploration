@@ -14,8 +14,12 @@ import { clamp, easeOutCubic } from "./feel";
  */
 export interface EnginePlume {
   group: THREE.Group;
-  /** Set throttle 0..2 and boost 0..1 every frame; visuals follow smoothly. */
-  setState(throttle: number, boost: number): void;
+  /**
+   * Set throttle (0..2), boost (0..1), and an optional speed factor
+   * (0..1) so the plume tail extends at high cruise speed even when
+   * throttle is modest.
+   */
+  setState(throttle: number, boost: number, speedNorm?: number): void;
   update(deltaSec: number, elapsedSec: number): void;
   dispose(): void;
 }
@@ -197,16 +201,21 @@ export function createEnginePlume(opts: {
 
   let throttle = 1;
   let boost = 0;
+  let speedNorm = 0;
 
-  const setState = (t: number, b: number) => {
+  const setState = (t: number, b: number, s = 0) => {
     throttle = clamp(t, 0, 2);
     boost = clamp(b, 0, 1);
+    speedNorm = clamp(s, 0, 1);
   };
 
   const update = (deltaSec: number, elapsedSec: number) => {
     const tNorm = throttle / 2; // 0..1
     midMat.uniforms.uTime.value = elapsedSec;
-    midMat.uniforms.uThrottle.value = throttle;
+    // Pretend throttle reads slightly higher when speed is high so the
+    // existing length envelope stretches the tail without rewriting the
+    // shader. Visually: cruise feels faster than idle-with-throttle.
+    midMat.uniforms.uThrottle.value = throttle + speedNorm * 0.8;
     midMat.uniforms.uBoost.value = boost;
 
     // Core flicker — cheap sin-noise, scaled by throttle.

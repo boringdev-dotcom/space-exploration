@@ -169,6 +169,8 @@ export class MissionScene implements SceneSlot {
 
   /** Latest autopilot throttle value (0..2) — used for plume + shake feel. */
   private autopilotThrottle = 0;
+  /** Last frame's boost (for edge-detection of boost engage). */
+  private lastBoost = 0;
   /** Reusable scratch for the desired-forward direction. */
   private readonly _scratchDesiredFwd = new THREE.Vector3();
   private readonly _scratchDesiredQuat = new THREE.Quaternion();
@@ -535,15 +537,20 @@ export class MissionScene implements SceneSlot {
 
     // Streaming dust: respawns particles ahead of the ship as they sweep
     // past, so the player feels the ship moving. Hide once landed (ship
-    // velocity is zero so respawning is wasted work).
+    // velocity is zero so respawning is wasted work). At cruise speed
+    // we widen the particles + bump opacity so the dust streaks read as
+    // wind-blur (B4 in PLAN.md).
     const phase = this.phaseController.phase;
     const dustVisible = phase !== "landed";
     this.spaceDust.points.visible = dustVisible;
     if (dustVisible) {
+      const dustSpeed = this.dynamics.ship.velocity.length();
+      const dustNorm = clamp01(dustSpeed / 60);
       this.spaceDust.update(
         this.dynamics.ship.position,
         this.dynamics.ship.forward,
         deltaSec,
+        dustNorm,
       );
     }
 
@@ -585,7 +592,26 @@ export class MissionScene implements SceneSlot {
       0.022 * feel.shakeScale * this.autopilotThrottle * exteriorWeight;
     this.computeShake(elapsedSec, shakeAmp, this._scratchShake);
     this.rig.setExtraShake(this._scratchShake);
-    this.rig.setThrottle(this.autopilotThrottle, 0);
+
+    // Speed factor used by FOV bias + plume length (B1, B5).
+    const dyn = this.dynamics;
+    const speed = dyn.ship.velocity.length();
+    const speedNorm = clamp01(speed / 60);
+    this.rig.setThrottle(this.autopilotThrottle, this.input.boost, speedNorm);
+    this.rig.setSpeedFovBias(speedNorm * 4);
+
+    // Boost engage edge → +6° FOV punch decaying over 0.4s.
+    if (this.input.boost > 0.1 && this.lastBoost <= 0.1) {
+      this.rig.pulseBoostFov(6, 0.4);
+    }
+    this.lastBoost = this.input.boost;
+
+    // Visual roll-into-yaw bank for chase/external (B3). We use the
+    // player's commanded yaw rate when in manual; in autopilot the ship
+    // is straight-line cruising so there's nothing to bank.
+    const yawForBank = this._controlMode === "auto" ? 0 : this.input.yawRate;
+    this.rig.setYawRateForBank(yawForBank);
+
     // Head-look uses the player's mouse input; ship steering is autopilot.
     this.rig.setHeadLook(this.input.headLookYaw, this.input.headLookPitch);
 
