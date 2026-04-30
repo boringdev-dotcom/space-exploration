@@ -520,7 +520,8 @@ export function mountFlightHud(args: Args): () => void {
   }
 
   // Subscriptions are still accepted (so SceneManager wiring keeps working);
-  // we ignore the input snapshot now that the cockpit dash is gone.
+  // we ignore the input snapshot in this HUD (PFD pulls from getPfdTelemetry).
+  void ({} as FlightInputSnapshot);
   const unsubInput = args.onFlightInput?.(() => {}) ?? (() => {});
 
   const unsubViewToggle =

@@ -291,12 +291,14 @@ export class FlightInput {
     this.pendingMouseX = 0;
     this.pendingMouseY = 0;
 
-    // Roll holds while keys pressed, eases back to 0 otherwise.
+    // Roll holds while keys pressed, eases back to 0 otherwise. Rate
+    // is faster than pitch/yaw so banking turns feel snappy (matches
+    // MSFS roll authority).
     if (keyRoll === 0) {
-      this.rollSpring.target = damp(this.rollSpring.target, 0, 2.2, dt);
+      this.rollSpring.target = damp(this.rollSpring.target, 0, 2.5, dt);
     } else {
       this.rollSpring.target = clamp(
-        this.rollSpring.target + keyRoll * 1.3 * dt,
+        this.rollSpring.target + keyRoll * 2.2 * dt,
         -ROLL_LIMIT,
         ROLL_LIMIT,
       );
@@ -349,6 +351,7 @@ export class FlightInput {
       lookBack: this.keyV,
     };
   }
+
 
   private releaseAll(): void {
     this.keyW = this.keyS = false;

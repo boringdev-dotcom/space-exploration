@@ -523,6 +523,24 @@ export class CockpitRig {
       .add(this._idleSwayPos)
       .add(this.extraShakeOffset);
 
+    // Pick a camera up vector. In COCKPIT view the camera IS the pilot's
+    // head, so we anchor up to the ship's actual local-up — meaning the
+    // player visually sees the world tilt when they roll. In chase /
+    // external the up vector stays world-up so the camera horizon stays
+    // level (the chase-bank effect handles the visual tilt instead).
+    if (cockpitWeight > 0.001 && ship) {
+      // Ship-local up = (0,1,0) rotated by ship.quaternion. Blend with
+      // world-up by cockpit weight so the transition between cockpit
+      // and chase doesn't pop.
+      _scratchShipUp
+        .set(0, 1, 0)
+        .applyQuaternion(ship.quaternion);
+      _scratchCamUp.copy(_worldUp).lerp(_scratchShipUp, cockpitWeight);
+      this.camera.up.copy(_scratchCamUp).normalize();
+    } else {
+      this.camera.up.set(0, 1, 0);
+    }
+
     this.camera.lookAt(rawLook);
 
     // FOV is part of the profile, plus a per-frame speed bias and an
@@ -554,12 +572,14 @@ export class CockpitRig {
     // so we don't induce ROLL drift. Weight by cockpit's blend share so
     // the head-look fades out as we move into chase / external.
     if (cockpitWeight > 0.001) {
-      // Rotate around the camera's local Y (yaw) then local X (pitch).
-      // Using the camera's *current* up (world Y after lookAt) keeps roll
-      // anchored to the world horizon — no slow drift over repeated pans.
+      // Rotate around the camera's CURRENT up axis (which now matches the
+      // ship's local up when in cockpit mode — set above before lookAt).
+      // Using camera.up keeps the head-look yaw anchored to "ship up" so
+      // when the rocket rolls, looking left still goes left from the
+      // pilot's POV. Pitch rotates around the camera's local X.
       const yaw = this.headLookYaw * cockpitWeight;
       const pitch = this.headLookPitch * cockpitWeight;
-      this.camera.rotateOnWorldAxis(_worldUp, yaw);
+      this.camera.rotateOnWorldAxis(this.camera.up, yaw);
       this.camera.rotateX(pitch);
     }
 
@@ -867,3 +887,5 @@ const _scratchRight = new THREE.Vector3();
 const _scratchUp = new THREE.Vector3();
 const _scratchExternalOffset = new THREE.Vector3();
 const _scratchExternalPitchAxis = new THREE.Vector3();
+const _scratchShipUp = new THREE.Vector3();
+const _scratchCamUp = new THREE.Vector3();

@@ -283,6 +283,7 @@ export class SceneManager {
     return this.flightInput.onPointerLockChange(cb);
   }
 
+
   getFlightViewMode(): "cockpit" | "chase" | "external" {
     return this.state === "mission"
       ? this.mission.viewMode

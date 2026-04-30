@@ -59,9 +59,12 @@ const DEFAULTS: Required<FlightDynamicsOpts> = {
   // accelerating to cruise within ~5 seconds.
   maxThrust: 140,
   boostBonus: 1.5,
-  pitchRateMax: 0.9,
-  yawRateMax: 0.9,
-  rollRateMax: 1.4,
+  // Pitch/yaw/roll authority — tuned to feel responsive in manual flight
+  // without sliding into "twitchy". Roll is faster so banking turns are
+  // visibly snappier than pitch/yaw.
+  pitchRateMax: 1.15,
+  yawRateMax: 1.0,
+  rollRateMax: 2.2,
   // 0.1% of velocity decays per second so untouched ships eventually stop.
   // Important so a stray input doesn't permanently throw you off course.
   dragPerSecond: 0.001,
