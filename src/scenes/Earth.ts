@@ -26,6 +26,15 @@ export interface Earth {
   update(deltaSec: number, elapsedSec: number): void;
   /** Set the sun direction (world space, normalized). Drives cloud shading. */
   setSunDirection(dir: THREE.Vector3): void;
+  /**
+   * Drive the atmosphere shell's opacity from the camera's distance to
+   * Earth's centre. The shell is rendered back-side + additive so it can
+   * easily wash out the frame from the inside; this fades it to 0 while
+   * the camera is inside the shell radius and ramps back to 1 once we're
+   * comfortably outside (so the rim glow only appears when actually
+   * looking at Earth from space).
+   */
+  setCameraDistance(distance: number): void;
   /** Free GPU resources. */
   dispose(): void;
   /** True once the GLB body has resolved (or fell back to procedural). */
@@ -71,9 +80,10 @@ const VERT = /* glsl */ `
 const ATMOSPHERE_FRAG = /* glsl */ `
   varying vec3 vNormal;
   uniform vec3 uColor;
+  uniform float uOpacity;
   void main() {
     float i = pow(0.62 - dot(vNormal, vec3(0,0,1)), 2.4);
-    gl_FragColor = vec4(uColor, 1.0) * i;
+    gl_FragColor = vec4(uColor, 1.0) * i * uOpacity;
   }
 `;
 
@@ -114,13 +124,20 @@ export function createEarth(): Earth {
   clouds.name = "earth.clouds";
   group.add(clouds);
 
-  // Back-side atmosphere halo.
+  // Back-side atmosphere halo. Starts at uOpacity = 0 — the cockpit camera
+  // spawns INSIDE this shell during liftoff, and a back-side additive shell
+  // composites cyan everywhere from the inside (the "all white at takeoff"
+  // bug). `setCameraDistance` ramps the uniform back up once the camera is
+  // safely outside the shell.
   const atmosphereMat = new THREE.ShaderMaterial({
     transparent: true,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.BackSide,
-    uniforms: { uColor: { value: new THREE.Color(0x6cc7ff) } },
+    uniforms: {
+      uColor: { value: new THREE.Color(0x6cc7ff) },
+      uOpacity: { value: 0 },
+    },
     vertexShader: VERT,
     fragmentShader: ATMOSPHERE_FRAG,
   });
@@ -172,6 +189,19 @@ export function createEarth(): Earth {
     cloudUniforms.uSunDir.value.copy(dir).normalize();
   };
 
+  const setCameraDistance = (distance: number) => {
+    // 0 inside the shell, 1 once we're comfortably outside. The smooth
+    // ramp goes from 99% to 112% of EARTH_ATMOSPHERE_RADIUS so the rim
+    // halo fades in cleanly as we ascend out of LEO.
+    const t0 = EARTH_ATMOSPHERE_RADIUS * 0.99;
+    const t1 = EARTH_ATMOSPHERE_RADIUS * 1.12;
+    const raw = (distance - t0) / Math.max(0.0001, t1 - t0);
+    const clamped = Math.min(1, Math.max(0, raw));
+    // Smoothstep for a soft fade.
+    const eased = clamped * clamped * (3 - 2 * clamped);
+    (atmosphereMat.uniforms.uOpacity as { value: number }).value = eased;
+  };
+
   const dispose = () => {
     cloudGeom.dispose();
     cloudMat.dispose();
@@ -185,5 +215,5 @@ export function createEarth(): Earth {
     }
   };
 
-  return { group, update, setSunDirection, dispose, ready };
+  return { group, update, setSunDirection, setCameraDistance, dispose, ready };
 }
