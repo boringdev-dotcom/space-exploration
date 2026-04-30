@@ -33,14 +33,14 @@ export class SurfaceScene implements SceneSlot {
   private _lastError: string | null = null;
   private lockListeners: LockListener[] = [];
 
-  /**
-   * Optional spawn pose handed in from MissionScene's touchdown. When set,
-   * the player's first-person view starts at this transform instead of the
-   * Marble scan origin. This sells "you stepped out of the rocket where it
-   * landed" without breaking the existing Marble-default spawn for users
-   * that enter the surface scene without a touchdown.
-   */
-  private pendingSpawnPose: { position: THREE.Vector3; quaternion: THREE.Quaternion } | null = null;
+  // Touchdown spawn pose used to be persisted here so the player would
+  // appear "wherever the ship landed". The ship's mission-space transform
+  // isn't a usable surface-space transform — the Marble splat scan origin
+  // sits at world (0, 0, 0) regardless of where the destination planet is
+  // in mission space, and the camera's far plane is 1000 — so re-using the
+  // mission pose put the camera completely outside the splat and nothing
+  // rendered. We now always spawn at the Marble scan origin (see
+  // `resetCameraPose`) and `setSpawnPose` is intentionally a no-op.
 
   private moveForward = false;
   private moveBackward = false;
@@ -337,28 +337,17 @@ export class SurfaceScene implements SceneSlot {
   }
 
   /**
-   * Pre-set the player's spawn transform for the upcoming `loadPlanet`.
-   * Called by MissionScene on touchdown; consumed in `resetCameraPose`.
+   * Receive the touchdown spawn pose from MissionScene. Kept on the public
+   * API for compatibility with the existing handoff wiring, but it's a
+   * no-op: the mission-space pose isn't a valid surface-space pose (see
+   * the comment near the top of the class). The player always spawns at
+   * the Marble scan origin so the splat renders correctly.
    */
-  setSpawnPose(pose: { position: THREE.Vector3; quaternion: THREE.Quaternion }): void {
-    this.pendingSpawnPose = {
-      position: pose.position.clone(),
-      quaternion: pose.quaternion.clone(),
-    };
+  setSpawnPose(_pose: { position: THREE.Vector3; quaternion: THREE.Quaternion }): void {
+    void _pose;
   }
 
   private resetCameraPose(_planet: Planet): void {
-    if (this.pendingSpawnPose) {
-      // Use the touchdown pose. Camera position is the ship's cockpit
-      // location; quaternion is the ship's heading at landing. The Marble
-      // splat scan origin is still at world origin, so the player ends up
-      // standing wherever the ship landed within the splat.
-      this.camera.position.copy(this.pendingSpawnPose.position);
-      this.camera.quaternion.copy(this.pendingSpawnPose.quaternion);
-      // Clear so subsequent re-entries fall back to the default spawn.
-      this.pendingSpawnPose = null;
-      return;
-    }
     // Marble's official viewer (marble.worldlabs.ai) settles the camera at
     // (0, 1, 0) looking at (0, 1, -10) once the splat has loaded. After our
     // OpenCV→OpenGL flip on the splat (quaternion 1, 0, 0, 0 — a 180°
