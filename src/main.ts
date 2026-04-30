@@ -1,6 +1,8 @@
+import { ARTEMIS_ROCKET_GLB_URL, EARTH_GLB_URL } from "./data/assetUrls";
 import { SceneManager } from "./scenes/SceneManager";
 import { mountDebugHud } from "./hud/debugHud";
 import { unlockAudio } from "./util/audio";
+import { preloadGltf } from "./util/gltfModel";
 
 function bootstrap(): void {
   const canvas = document.getElementById("stage") as HTMLCanvasElement | null;
@@ -9,20 +11,10 @@ function bootstrap(): void {
     return;
   }
 
-  const loader = document.getElementById("loader");
-  const loaderMessage = document.getElementById("loader-message");
-
-  const phases = [
-    "INITIALIZING SYSTEMS",
-    "ALIGNING TELEMETRY",
-    "WARMING UP REACTOR",
-    "BOOTING NAVIGATION",
-  ];
-  let phaseIdx = 0;
-  const phaseTimer = window.setInterval(() => {
-    phaseIdx = (phaseIdx + 1) % phases.length;
-    if (loaderMessage) loaderMessage.textContent = phases[phaseIdx];
-  }, 600);
+  // Warm the largest GLBs in parallel with WebGL init so hangar + mission
+  // share one cached parse (see gltfModel.ts) instead of duplicate work.
+  void preloadGltf(ARTEMIS_ROCKET_GLB_URL);
+  void preloadGltf(EARTH_GLB_URL);
 
   const manager = new SceneManager(canvas);
   mountDebugHud({ manager });
@@ -35,12 +27,6 @@ function bootstrap(): void {
   };
   window.addEventListener("pointerdown", unlock, { once: true });
   window.addEventListener("keydown", unlock, { once: true });
-
-  // Hide the loader after a brief moment so the WebGL pipeline can warm up.
-  window.setTimeout(() => {
-    window.clearInterval(phaseTimer);
-    loader?.classList.add("is-hidden");
-  }, 1500);
 
   // Expose for debugging in dev.
   if (import.meta.env.DEV) {

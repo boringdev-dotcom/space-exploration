@@ -1,5 +1,6 @@
 import * as THREE from "three";
 
+import { EARTH_GLB_URL } from "../data/assetUrls";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 
 /**
@@ -18,8 +19,6 @@ import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 export const EARTH_RADIUS = 63.78;
 export const EARTH_CLOUD_RADIUS = 64.45;
 export const EARTH_ATMOSPHERE_RADIUS = 72;
-const EARTH_GLB_URL = "/models/earth/earth.glb";
-
 export interface Earth {
   group: THREE.Group;
   /** Drive each frame with the elapsed seconds; rotates body + clouds. */

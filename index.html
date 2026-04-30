@@ -11,6 +11,8 @@
     />
     <link rel="stylesheet" href="/src/styles/tokens.css" />
     <link rel="stylesheet" href="/src/styles/hud.css" />
+    <link rel="preload" href="/models/rockets/artemis_ii_-_space_launch_system_sls.glb" as="fetch" crossorigin />
+    <link rel="preload" href="/models/earth/earth.glb" as="fetch" crossorigin />
   </head>
   <body>
     <div id="app">
@@ -709,12 +711,6 @@
           </div>
           <div class="grid-overlay" aria-hidden="true"></div>
         </section>
-      </div>
-
-      <!-- Loader -->
-      <div id="loader">
-        <div class="loader-ring"></div>
-        <div id="loader-message">INITIALIZING SYSTEMS</div>
       </div>
 
       <!-- Crossfade flash overlay -->

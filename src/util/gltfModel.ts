@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { clone } from "three/examples/jsm/utils/SkeletonUtils.js";
+import type { GLTF } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 
 const loader = new GLTFLoader();
@@ -6,26 +8,47 @@ loader.register((parser) => new PbrSpecularGlossinessCompat(parser));
 
 const KHR_PBR_SPECULAR_GLOSSINESS = "KHR_materials_pbrSpecularGlossiness";
 
+/** One network fetch + GPU decode per URL; each consumer gets a deep-cloned scene. */
+const gltfByUrl = new Map<string, Promise<GLTF>>();
+
+function loadGltfCached(url: string): Promise<GLTF> {
+  let pending = gltfByUrl.get(url);
+  if (!pending) {
+    pending = loader.loadAsync(url);
+    gltfByUrl.set(url, pending);
+  }
+  return pending;
+}
+
+/**
+ * Start loading a GLB so it is ready (or in-flight) before a scene needs it.
+ * Safe to call multiple times for the same URL.
+ */
+export function preloadGltf(url: string): Promise<void> {
+  return loadGltfCached(url).then(() => {});
+}
+
 export async function loadNormalizedGltfModel(
   url: string,
   targetDiameter: number,
 ): Promise<THREE.Group> {
-  const gltf = await loader.loadAsync(url);
+  const gltf = await loadGltfCached(url);
+  const scene = clone(gltf.scene) as THREE.Group;
   const wrapper = new THREE.Group();
-  wrapper.add(gltf.scene);
+  wrapper.add(scene);
 
-  const box = new THREE.Box3().setFromObject(gltf.scene);
+  const box = new THREE.Box3().setFromObject(scene);
   const size = box.getSize(new THREE.Vector3());
   const center = box.getCenter(new THREE.Vector3());
   const maxDim = Math.max(size.x, size.y, size.z);
 
   if (Number.isFinite(maxDim) && maxDim > 0) {
     const scale = targetDiameter / maxDim;
-    gltf.scene.scale.setScalar(scale);
-    gltf.scene.position.copy(center).multiplyScalar(-scale);
+    scene.scale.setScalar(scale);
+    scene.position.copy(center).multiplyScalar(-scale);
   }
 
-  gltf.scene.traverse((obj) => {
+  scene.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (mesh.isMesh) {
       mesh.frustumCulled = false;
