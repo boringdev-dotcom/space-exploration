@@ -333,6 +333,13 @@
 
         <!-- =================== IN-FLIGHT NAVIGATION =================== -->
         <section id="screen-flight" class="hud-screen">
+          <!-- Control-mode pill (top-center, above view pill) -->
+          <div class="control-mode-pill" id="flight-control-mode-pill" data-mode="auto">
+            <span class="control-mode-pill__dot" aria-hidden="true"></span>
+            <span class="control-mode-pill__label" id="flight-control-mode-label">AUTOPILOT</span>
+            <span class="control-mode-pill__hint">[ <kbd>TAB</kbd> ] manual · [ <kbd>F</kbd> ] free-fly · [ <kbd>H</kbd> ] help</span>
+          </div>
+
           <!-- View-mode pill (top-center) -->
           <div class="view-mode-pill" id="flight-view-pill">
             <span class="view-mode-pill__chip" id="flight-view-mode-label">COCKPIT VIEW</span>
@@ -378,6 +385,59 @@
               <span class="t-label">RANGE</span>
               <span class="flight-readout__sep">·</span>
               <span class="t-mono hud-glow" id="flight-distance">— km</span>
+            </div>
+          </div>
+
+          <!-- Click-to-engage overlay (shown while pointer-lock is inactive). -->
+          <div class="engage-overlay" id="flight-engage-overlay" aria-hidden="true">
+            <div class="engage-overlay__panel">
+              <span class="hud-bracket hud-bracket--tl"></span>
+              <span class="hud-bracket hud-bracket--tr"></span>
+              <span class="hud-bracket hud-bracket--bl"></span>
+              <span class="hud-bracket hud-bracket--br"></span>
+              <span class="material-symbols-outlined engage-overlay__icon">flight_takeoff</span>
+              <strong>Click to engage flight controls</strong>
+              <span class="engage-overlay__hint">Mouse to look · WASD/Arrows to fly · ESC to release</span>
+            </div>
+          </div>
+
+          <!-- In-flight help overlay (toggled with H). -->
+          <div class="flight-help" id="flight-help-overlay" aria-hidden="true">
+            <div class="flight-help__panel">
+              <span class="hud-bracket hud-bracket--tl"></span>
+              <span class="hud-bracket hud-bracket--tr"></span>
+              <span class="hud-bracket hud-bracket--bl"></span>
+              <span class="hud-bracket hud-bracket--br"></span>
+              <header class="flight-help__head">
+                <span class="t-label">FLIGHT CONTROLS</span>
+                <span class="t-meta primary-dim">[ <kbd>H</kbd> ] toggle</span>
+              </header>
+              <div class="flight-help__cols">
+                <div>
+                  <div class="flight-help__row"><kbd>W</kbd><kbd>S</kbd><span>Throttle up / down</span></div>
+                  <div class="flight-help__row"><kbd>↑</kbd><kbd>↓</kbd><span>Pitch nose up / down</span></div>
+                  <div class="flight-help__row"><kbd>←</kbd><kbd>→</kbd><span>Yaw left / right</span></div>
+                  <div class="flight-help__row"><kbd>Q</kbd><kbd>E</kbd><span>Roll left / right</span></div>
+                  <div class="flight-help__row"><kbd>Space</kbd><span>Boost (drains gauge)</span></div>
+                </div>
+                <div>
+                  <div class="flight-help__row"><kbd>B</kbd><span>Brake (kill velocity)</span></div>
+                  <div class="flight-help__row"><kbd>R</kbd><span>Hold retrograde</span></div>
+                  <div class="flight-help__row"><kbd>T</kbd><span>Hold prograde</span></div>
+                  <div class="flight-help__row"><kbd>Z</kbd><span>Level horizon</span></div>
+                  <div class="flight-help__row"><kbd>V</kbd><span>Look back (hold)</span></div>
+                </div>
+                <div>
+                  <div class="flight-help__row"><kbd>Tab</kbd><span>Autopilot toggle</span></div>
+                  <div class="flight-help__row"><kbd>F</kbd><span>Free-fly toggle</span></div>
+                  <div class="flight-help__row"><kbd>C</kbd><span>Cycle camera view</span></div>
+                  <div class="flight-help__row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><span>Cockpit / Chase / External</span></div>
+                  <div class="flight-help__row"><kbd>Esc</kbd><span>Release pointer</span></div>
+                </div>
+              </div>
+              <footer class="flight-help__foot">
+                <span class="t-meta">Mouse moves your head — ship heading is independent.</span>
+              </footer>
             </div>
           </div>
         </section>

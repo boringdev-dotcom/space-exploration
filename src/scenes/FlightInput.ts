@@ -127,6 +127,9 @@ export class FlightInput {
   private active = false;
   private bound = false;
 
+  /** Subscribers notified whenever pointer-lock state flips. */
+  private lockListeners: Array<(locked: boolean) => void> = [];
+
   constructor(element: HTMLElement) {
     this.element = element;
   }
@@ -367,7 +370,21 @@ export class FlightInput {
 
   private readonly onLockChange = (): void => {
     this.isLocked = document.pointerLockElement === this.element;
+    this.lockListeners.forEach((cb) => cb(this.isLocked));
   };
+
+  /** Subscribe to pointer-lock state changes. Returns unsubscribe. */
+  onPointerLockChange(cb: (locked: boolean) => void): () => void {
+    this.lockListeners.push(cb);
+    return () => {
+      this.lockListeners = this.lockListeners.filter((x) => x !== cb);
+    };
+  }
+
+  /** Read current pointer-lock state. */
+  get pointerLocked(): boolean {
+    return this.isLocked;
+  }
 
   private readonly onMouseMove = (e: MouseEvent): void => {
     if (!this.active || !this.isLocked) return;

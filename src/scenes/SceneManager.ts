@@ -270,6 +270,11 @@ export class SceneManager {
     return this.mission.controlMode;
   }
 
+  /** HUD subscribes here to pointer-lock state changes. */
+  onFlightPointerLockChange(cb: (locked: boolean) => void): () => void {
+    return this.flightInput.onPointerLockChange(cb);
+  }
+
   getFlightViewMode(): "cockpit" | "chase" | "external" {
     return this.state === "mission"
       ? this.mission.viewMode
@@ -451,6 +456,11 @@ export class SceneManager {
             altitudeIsDestination: useDest,
           };
         },
+        // Phase A — control-mode pill, help overlay, click-to-engage.
+        onControlModeChange: (cb) => this.onControlModeChange(cb),
+        getControlMode: () => this.getControlMode(),
+        onHelpToggle: (cb) => this.onHelpToggle(cb),
+        onPointerLockChange: (cb) => this.onFlightPointerLockChange(cb),
       }),
     );
 

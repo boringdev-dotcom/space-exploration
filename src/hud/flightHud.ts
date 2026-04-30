@@ -17,6 +17,8 @@ export interface MissionHudTelemetry {
   altitudeIsDestination: boolean;
 }
 
+export type ControlMode = "auto" | "manual" | "free-fly";
+
 interface Args {
   getVelocityKmS: () => number;
   getDistanceKm: () => number;
@@ -33,6 +35,14 @@ interface Args {
   getMissionTelemetry: () => MissionHudTelemetry;
   /** Player clicked "Skip to Landing". */
   onSkipToLanding?: () => void;
+  /** Subscribe to control-mode changes (auto / manual / free-fly). */
+  onControlModeChange?: (cb: (mode: ControlMode) => void) => () => void;
+  /** Initial control mode (for first-paint of the pill). */
+  getControlMode?: () => ControlMode;
+  /** Subscribe to "H" key toggle. */
+  onHelpToggle?: (cb: () => void) => () => void;
+  /** Subscribe to pointer-lock state changes (for engage overlay). */
+  onPointerLockChange?: (cb: (locked: boolean) => void) => () => void;
 }
 
 /**
@@ -51,6 +61,14 @@ export function mountFlightHud(args: Args): () => void {
   // View-mode pill
   const viewPill = document.getElementById("flight-view-pill");
   const viewLabel = document.getElementById("flight-view-mode-label");
+
+  // Control-mode pill
+  const controlPill = document.getElementById("flight-control-mode-pill");
+  const controlLabel = document.getElementById("flight-control-mode-label");
+
+  // Help + engage overlays
+  const helpOverlay = document.getElementById("flight-help-overlay");
+  const engageOverlay = document.getElementById("flight-engage-overlay");
 
   // Phase strip
   const phaseStrip = document.getElementById("phase-strip");
@@ -180,13 +198,118 @@ export function mountFlightHud(args: Args): () => void {
   };
   skipBtn?.addEventListener("click", onSkipClick);
 
+  // Control-mode pill wiring -------------------------------------------
+  let currentControlMode: ControlMode = args.getControlMode?.() ?? "auto";
+  applyControlMode(currentControlMode, true);
+  const unsubControlMode =
+    args.onControlModeChange?.((mode) => {
+      currentControlMode = mode;
+      applyControlMode(mode);
+      // Free-fly hides the skip pill (no destination to skip to).
+      if (skipBtn) {
+        skipBtn.dataset.disabled = mode === "free-fly" ? "true" : "false";
+      }
+      if (phaseStrip) {
+        phaseStrip.dataset.paused = mode === "free-fly" ? "true" : "false";
+      }
+    }) ?? (() => {});
+
+  function applyControlMode(mode: ControlMode, instant = false): void {
+    if (controlLabel) {
+      controlLabel.textContent =
+        mode === "auto"
+          ? "AUTOPILOT"
+          : mode === "manual"
+            ? "MANUAL FLIGHT"
+            : "FREE FLIGHT";
+    }
+    if (controlPill) {
+      controlPill.dataset.mode = mode;
+      if (!instant) {
+        controlPill.classList.remove("is-flashing");
+        void controlPill.offsetWidth;
+        controlPill.classList.add("is-flashing");
+      }
+    }
+  }
+
+  // Help overlay wiring ------------------------------------------------
+  let helpVisible = false;
+  let firstShowTimer: number | null = null;
+  function setHelpVisible(visible: boolean): void {
+    helpVisible = visible;
+    if (helpOverlay) {
+      helpOverlay.dataset.visible = visible ? "true" : "false";
+      helpOverlay.setAttribute("aria-hidden", visible ? "false" : "true");
+    }
+    if (firstShowTimer !== null) {
+      window.clearTimeout(firstShowTimer);
+      firstShowTimer = null;
+    }
+  }
+  const unsubHelp =
+    args.onHelpToggle?.(() => {
+      setHelpVisible(!helpVisible);
+    }) ?? (() => {});
+
+  // Auto-show help for ~5s the first time the player enters the flight
+  // screen so they discover the binding overlay without reading docs.
+  let firstActivationDone = false;
+  function maybeAutoShowHelp(): void {
+    if (firstActivationDone) return;
+    firstActivationDone = true;
+    setHelpVisible(true);
+    firstShowTimer = window.setTimeout(() => {
+      if (helpVisible) setHelpVisible(false);
+      firstShowTimer = null;
+    }, 5500);
+  }
+
+  // Engage overlay wiring ----------------------------------------------
+  function setEngageVisible(visible: boolean): void {
+    if (!engageOverlay) return;
+    engageOverlay.dataset.visible = visible ? "true" : "false";
+    engageOverlay.setAttribute("aria-hidden", visible ? "false" : "true");
+  }
+  // Default to visible until a lock event tells us otherwise. Browsers may
+  // already auto-lock from the launch button gesture; the lock-change
+  // callback will hide us within a frame in that case.
+  setEngageVisible(true);
+  const unsubLock =
+    args.onPointerLockChange?.((locked) => {
+      setEngageVisible(!locked);
+    }) ?? (() => {});
+
+  // Hook the existing screen-active observer so we auto-show help on
+  // first activation and reset visibility cleanly.
+  const screenActiveObserver = new MutationObserver(() => {
+    if (!screen) return;
+    if (screen.classList.contains("is-active")) {
+      maybeAutoShowHelp();
+    } else {
+      setHelpVisible(false);
+      setEngageVisible(false);
+    }
+  });
+  if (screen) {
+    screenActiveObserver.observe(screen, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+  }
+
   return () => {
     cancelAnimationFrame(raf);
     observer.disconnect();
+    screenActiveObserver.disconnect();
+    if (firstShowTimer !== null) window.clearTimeout(firstShowTimer);
     screen?.removeEventListener("click", requestLock);
     skipBtn?.removeEventListener("click", onSkipClick);
     unsubInput();
     unsubViewToggle();
+    unsubControlMode();
+    unsubHelp();
+    unsubLock();
   };
 }
 
