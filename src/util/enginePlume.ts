@@ -83,7 +83,9 @@ const PLUME_FRAG = /* glsl */ `
     // Boost dial: punch saturation + nudge core warmer.
     col = mix(col, col + vec3(0.25, 0.05, -0.10) * uBoost, uBoost * 0.5);
 
-    float alpha = plume * (0.55 + 0.45 * uThrottle * 0.5);
+    // Alpha dialed back ~70% so the plume reads as a glow trailing the
+    // engine bell instead of washing the chase view to white.
+    float alpha = plume * (0.18 + 0.18 * uThrottle * 0.5);
     gl_FragColor = vec4(col, alpha);
   }
 `;
@@ -126,7 +128,7 @@ export function createEnginePlume(opts: {
   const coreMat = new THREE.MeshBasicMaterial({
     color: 0xd6f9ff,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.32,
     blending: THREE.AdditiveBlending,
     depthWrite: false,
     side: THREE.DoubleSide,
@@ -144,7 +146,9 @@ export function createEnginePlume(opts: {
     blending: THREE.AdditiveBlending,
     uniforms: {
       uColor: { value: new THREE.Color(0x7adcff) },
-      uIntensity: { value: 0.32 },
+      // Haze used to wash the chase view to white at high throttle —
+      // ~70% reduction so the rocket reads as a discrete object.
+      uIntensity: { value: 0.1 },
     },
     vertexShader: /* glsl */ `
       varying vec2 vUv;
@@ -186,7 +190,7 @@ export function createEnginePlume(opts: {
     size: 0.18,
     color: 0x9ee6ff,
     transparent: true,
-    opacity: 0.85,
+    opacity: 0.32,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     sizeAttenuation: true,
@@ -218,17 +222,18 @@ export function createEnginePlume(opts: {
     midMat.uniforms.uThrottle.value = throttle + speedNorm * 0.8;
     midMat.uniforms.uBoost.value = boost;
 
-    // Core flicker — cheap sin-noise, scaled by throttle.
+    // Core flicker — cheap sin-noise, scaled by throttle. Dialed down
+    // ~70% so the chase camera doesn't blow out at full throttle.
     const flicker = 0.85 + Math.random() * 0.15;
-    coreMat.opacity = (0.55 + tNorm * 0.45) * flicker;
+    coreMat.opacity = (0.16 + tNorm * 0.16) * flicker;
     core.scale.set(
       0.92 + Math.random() * 0.08,
       easeOutCubic(0.4 + tNorm * 0.6) * (1 + boost * 0.4),
       0.92 + Math.random() * 0.08,
     );
 
-    // Haze pulses softly with throttle and grows on boost.
-    hazeMat.uniforms.uIntensity.value = 0.35 + tNorm * 0.4 + boost * 0.4;
+    // Haze pulses softly with throttle and grows on boost. Reduced ~70%.
+    hazeMat.uniforms.uIntensity.value = 0.1 + tNorm * 0.12 + boost * 0.14;
     const hazeScale = 0.85 + tNorm * 0.5 + boost * 0.45;
     haze.scale.setScalar(hazeScale);
 
@@ -255,7 +260,7 @@ export function createEnginePlume(opts: {
       }
     }
     (pGeom.attributes.position as THREE.BufferAttribute).needsUpdate = true;
-    pMat.opacity = 0.6 + tNorm * 0.3 + boost * 0.2;
+    pMat.opacity = 0.18 + tNorm * 0.12 + boost * 0.08;
   };
 
   const dispose = () => {

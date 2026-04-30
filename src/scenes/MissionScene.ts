@@ -233,10 +233,12 @@ export class MissionScene implements SceneSlot {
 
     // Lighting — single warm sun + faint cool ambient so the night side of
     // Earth + the destination still reads.
-    this.sun = new THREE.DirectionalLight(0xfff1d6, 3.4);
+    // Intensity dialed back ~30% so the rocket's lit side doesn't push
+    // hard past the bloom threshold and wash the picture out.
+    this.sun = new THREE.DirectionalLight(0xfff1d6, 2.4);
     this.sun.position.set(800, 320, -400);
     this.scene.add(this.sun);
-    this.scene.add(new THREE.AmbientLight(0x39496a, 0.35));
+    this.scene.add(new THREE.AmbientLight(0x39496a, 0.42));
 
     // Earth (GLB body + procedural shells).
     this.earth = createEarth();

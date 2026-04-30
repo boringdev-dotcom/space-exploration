@@ -81,13 +81,15 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
   composer.addPass(renderPass);
 
   // Bloom rendered at half resolution — visually identical, ~4x cheaper.
+  // Strength dialed down ~80% (and threshold bumped) so the rocket reads
+  // clearly instead of being washed out by glow during cruise / boost.
   const halfW = Math.max(2, Math.round(window.innerWidth * 0.5));
   const halfH = Math.max(2, Math.round(window.innerHeight * 0.5));
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(halfW, halfH),
-    0.85,
-    0.6,
-    0.4,
+    0.18,  // strength (was 0.85)
+    0.55,  // radius
+    0.78,  // threshold (was 0.4) — only strongly-lit pixels bloom
   );
   composer.addPass(bloom);
 
@@ -107,8 +109,10 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
   composer.addPass(output);
 
   let elapsed = 0;
-  let baseBloomStrength = 0.85;
-  let baseBloomRadius = 0.6;
+  // Base values dimmed ~80% from the original cinematic levels so the
+  // rocket reads as a solid object instead of a smear of light.
+  let baseBloomStrength = 0.18;
+  let baseBloomRadius = 0.55;
   let baseGrain = 0.04;
   let baseVignette = 0.5;
   let bloomMul = 1;
@@ -117,21 +121,21 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
   const applyBase = (level: "default" | "warp" | "calm") => {
     switch (level) {
       case "warp":
-        baseBloomStrength = 1.25;
-        baseBloomRadius = 0.75;
-        baseGrain = 0.055;
-        baseVignette = 0.55;
+        baseBloomStrength = 0.26;
+        baseBloomRadius = 0.65;
+        baseGrain = 0.045;
+        baseVignette = 0.5;
         break;
       case "calm":
-        baseBloomStrength = 0.6;
+        baseBloomStrength = 0.12;
         baseBloomRadius = 0.45;
         baseGrain = 0.03;
         baseVignette = 0.4;
         break;
       case "default":
       default:
-        baseBloomStrength = 0.85;
-        baseBloomRadius = 0.6;
+        baseBloomStrength = 0.18;
+        baseBloomRadius = 0.55;
         baseGrain = 0.04;
         baseVignette = 0.5;
         break;

@@ -374,7 +374,10 @@ export class SceneManager {
     if (next !== "surface") {
       this.post.bypass = false;
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-      this.renderer.toneMappingExposure = next === "hangar" ? 0.92 : 1.1;
+      // Mission gets a slightly tamer exposure (1.0) to keep the rocket
+      // readable; hangar stays moody at 0.92; other states use 1.05.
+      this.renderer.toneMappingExposure =
+        next === "hangar" ? 0.92 : next === "mission" ? 0.95 : 1.05;
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     }
   }
@@ -581,20 +584,21 @@ export class SceneManager {
       // 6,000 km/s in our scale, so /3000 hits 1 by mid-cruise; clamp.
       const speedNorm = Math.max(0, Math.min(1, speedKmS / 3000));
       const proximity = this.mission.getAtmosphericProximity(); // 0..1
+      // Composite bloom bias — every contribution now ~half its original
+      // value so cruise / boost / proximity don't blow the picture out.
       const targetBloomMul =
         1 +
-        this.lastInput.boost * 0.45 +
-        phaseBias +
-        speedNorm * 0.18 +
-        proximity * 0.55;
+        this.lastInput.boost * 0.18 +
+        phaseBias * 0.4 +
+        speedNorm * 0.08 +
+        proximity * 0.22;
       this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
       const targetGrain =
-        0.04 + this.lastInput.boost * 0.03 + proximity * 0.025;
+        0.035 + this.lastInput.boost * 0.015 + proximity * 0.015;
       this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
-      // Bloom radius widens with boost and proximity (boost = "warp",
-      // proximity = "atmospheric flare").
+      // Bloom radius gentle — wide blooms read as wash. Keep it tight.
       const targetRadiusMul =
-        1 + this.lastInput.boost * 0.35 + proximity * 0.4 + speedNorm * 0.15;
+        1 + this.lastInput.boost * 0.18 + proximity * 0.22 + speedNorm * 0.08;
       this.bloomRadiusBias = damp(
         this.bloomRadiusBias,
         targetRadiusMul,
