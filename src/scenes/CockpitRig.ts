@@ -104,9 +104,9 @@ export class CockpitRig {
   private plume: EnginePlume;
 
   /** Current view mode (post-transition target). */
-  private _viewMode: ViewMode = "cockpit";
+  private _viewMode: ViewMode = "chase";
   /** Mode being transitioned away from. Equals `_viewMode` when settled. */
-  private _prevViewMode: ViewMode = "cockpit";
+  private _prevViewMode: ViewMode = "chase";
   /** 0 = at prev profile, 1 = at current profile. Drives the unified
    *  position+lookAt+FOV crossfade across all three view modes. */
   private viewT = 1;

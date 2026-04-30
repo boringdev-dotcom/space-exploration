@@ -97,7 +97,7 @@ export class FlightInput {
    *     so the player can drag-set an angle and have the camera stay
    *     there (MSFS / orbital-cam feel).
    */
-  private viewMode: "cockpit" | "chase" | "external" = "cockpit";
+  private viewMode: "cockpit" | "chase" | "external" = "chase";
 
   private throttle = 1;
   private throttleTarget = 1;

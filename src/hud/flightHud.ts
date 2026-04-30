@@ -189,7 +189,7 @@ export function mountFlightHud(args: Args): () => void {
       lastTime = 0;
       raf = requestAnimationFrame(loop);
       // Initial view-mode badge.
-      applyViewMode(args.getViewMode?.() ?? "cockpit", true);
+      applyViewMode(args.getViewMode?.() ?? "chase", true);
     } else {
       cancelAnimationFrame(raf);
     }
