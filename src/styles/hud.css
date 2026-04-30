@@ -2968,7 +2968,7 @@
 /* =====================================================================
  * Mission phase strip — 4 chips: LIFTOFF › CRUISE › APPROACH › TOUCHDOWN.
  * Active phase glows cyan; completed phases dim amber; pending phases
- * stay neutral. Sits below the view-mode pill at the top centre.
+ * stay neutral. Stays top-centre (below the top-right control cluster).
  * ===================================================================== */
 
 .phase-strip {
@@ -3145,10 +3145,11 @@
   }
 }
 
-/* Skip-to-landing pill — top-right corner of the in-flight screen. */
+/* Skip-to-landing pill — bottom-right of the in-flight screen (stacked with PFD / Help). */
 .skip-pill {
   position: absolute;
-  top: calc(var(--top-bar-h, 64px) + 24px);
+  top: auto;
+  bottom: 24px;
   right: 32px;
   display: inline-flex;
   align-items: center;
@@ -3201,7 +3202,8 @@
 @media (max-width: 980px) {
   .skip-pill {
     right: 16px;
-    top: calc(var(--top-bar-h, 56px) + 16px);
+    bottom: 16px;
+    top: auto;
     padding: 6px 12px;
     font-size: 11px;
   }
@@ -3209,15 +3211,16 @@
 
 /* =====================================================================
  * Control-mode pill — "AUTOPILOT" / "MANUAL FLIGHT" / "FREE FLIGHT"
- * Sits above the view-mode pill at the top center of the flight screen.
+ * Top-right on the flight screen (stacked above the view-mode pill).
  * Color shifts by mode so the player gets immediate visual feedback.
  * ===================================================================== */
 
 .control-mode-pill {
   position: absolute;
   top: calc(var(--top-bar-h, 64px) + 12px);
-  left: 50%;
-  transform: translateX(-50%);
+  right: 32px;
+  left: auto;
+  transform: none;
   display: inline-flex;
   align-items: center;
   gap: 12px;
@@ -3300,24 +3303,40 @@
 @keyframes control-mode-flash {
   0% {
     box-shadow: 0 0 0 0 currentColor;
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
   35% {
     box-shadow: 0 0 22px 6px currentColor;
-    transform: translateX(-50%) scale(1.08);
+    transform: scale(1.08);
   }
   100% {
     box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
-    transform: translateX(-50%) scale(1);
+    transform: scale(1);
   }
 }
 
-/* Push the existing view-mode pill down a touch so it doesn't overlap. */
+/* Flight screen: view pill sits under the control pill, both top-right. */
 #screen-flight.is-active .view-mode-pill {
-  top: calc(var(--top-bar-h, 64px) + 50px);
+  top: calc(var(--top-bar-h, 64px) + 48px);
+  left: auto;
+  right: 32px;
+  transform: none;
 }
 #screen-flight.is-active .phase-strip {
-  top: calc(var(--top-bar-h, 64px) + 90px);
+  top: calc(var(--top-bar-h, 64px) + 76px);
+}
+
+@media (max-width: 980px) {
+  .control-mode-pill {
+    right: 16px;
+  }
+  #screen-flight.is-active .view-mode-pill {
+    right: 16px;
+    top: calc(var(--top-bar-h, 56px) + 44px);
+  }
+  #screen-flight.is-active .phase-strip {
+    top: calc(var(--top-bar-h, 56px) + 72px);
+  }
 }
 
 /* =====================================================================
@@ -3886,11 +3905,13 @@
 
 .hud-toggle-stack {
   position: absolute;
-  top: calc(var(--top-bar-h, 64px) + 80px);
+  top: auto;
+  bottom: calc(24px + 44px + 10px);
   right: 32px;
   z-index: 6;
   display: flex;
   flex-direction: column;
+  align-items: flex-end;
   gap: 8px;
   pointer-events: none;
   opacity: 0;
@@ -3961,7 +3982,8 @@
 @media (max-width: 980px) {
   .hud-toggle-stack {
     right: 16px;
-    top: calc(var(--top-bar-h, 56px) + 64px);
+    bottom: calc(16px + 40px + 8px);
+    top: auto;
   }
 }
 
