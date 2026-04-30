@@ -2338,47 +2338,6 @@
 }
 
 /* =====================================================================
- * LOADING overlay
- * ===================================================================== */
-
-#loader {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface);
-  z-index: 100;
-  gap: 18px;
-  pointer-events: auto;
-  transition: opacity 600ms ease;
-}
-
-#loader.is-hidden {
-  opacity: 0;
-  pointer-events: none;
-}
-
-.loader-ring {
-  width: 64px;
-  height: 64px;
-  border: 1px solid rgba(76, 214, 255, 0.2);
-  border-top-color: var(--primary-fixed-dim);
-  border-radius: 50%;
-  animation: spin 1.4s linear infinite;
-  box-shadow: var(--glow-primary-soft);
-}
-
-#loader-message {
-  font-family: var(--font-display);
-  font-size: 12px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--on-surface-variant);
-}
-
-/* =====================================================================
  * Mobile fallback
  * ===================================================================== */
 

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { SplatMesh } from "@sparkjsdev/spark";
 
+import { ARTEMIS_ROCKET_GLB_URL } from "../data/assetUrls";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 import {
   createEnginePlume,
@@ -16,9 +17,6 @@ import {
   smoothstep,
 } from "../util/feel";
 import type { ShipState } from "./FlightDynamics";
-
-const ARTEMIS_GLB_URL =
-  "/models/rockets/artemis_ii_-_space_launch_system_sls.glb";
 
 /**
  * Local-space camera offsets for each view mode. The ship anchor is at the
@@ -1011,7 +1009,7 @@ export class CockpitRig {
       // Cinematic 1.2-unit height — large enough to read clearly from the
       // chase camera (which sits 2.6 back + 1.2 side + 1.8 up from the
       // ship). Real Artemis would be ~0.001 units tall at our scale.
-      const model = await loadNormalizedGltfModel(ARTEMIS_GLB_URL, 1.2);
+      const model = await loadNormalizedGltfModel(ARTEMIS_ROCKET_GLB_URL, 1.2);
       model.rotation.x = -Math.PI / 2;
       model.position.set(0, -0.15, 0);
       this.artemis = model;

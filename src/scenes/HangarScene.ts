@@ -5,9 +5,8 @@ import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
 import type { SceneSlot } from "./Scene";
 import { createStarfield } from "../util/starfield";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
+import { ARTEMIS_ROCKET_GLB_URL } from "../data/assetUrls";
 import { BACKDROPS } from "../data/backdrops";
-
-const ROCKET_MODEL_URL = "/models/rockets/artemis_ii_-_space_launch_system_sls.glb";
 
 /**
  * URL prefix for the Spark public mock splats. We refuse to load these in the
@@ -208,7 +207,7 @@ export class HangarScene implements SceneSlot {
     this.status = "LOADING ROCKET";
 
     try {
-      const rocket = await loadNormalizedGltfModel(ROCKET_MODEL_URL, 4.75);
+      const rocket = await loadNormalizedGltfModel(ARTEMIS_ROCKET_GLB_URL, 4.75);
       if (this.disposed) {
         disposeObjectTree(rocket);
         return;
