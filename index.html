@@ -519,7 +519,8 @@
             </div>
           </div>
 
-          <!-- Click-to-engage overlay (shown while pointer-lock is inactive). -->
+          <!-- Brief tutorial card shown the first time the player enters
+               flight. Auto-hides after the first key/click. -->
           <div class="engage-overlay" id="flight-engage-overlay" aria-hidden="true">
             <div class="engage-overlay__panel">
               <span class="hud-bracket hud-bracket--tl"></span>
@@ -527,8 +528,10 @@
               <span class="hud-bracket hud-bracket--bl"></span>
               <span class="hud-bracket hud-bracket--br"></span>
               <span class="material-symbols-outlined engage-overlay__icon">flight_takeoff</span>
-              <strong>Click to engage flight controls</strong>
-              <span class="engage-overlay__hint">Mouse to look · WASD/Arrows to fly · ESC to release</span>
+              <strong>Fly the rocket</strong>
+              <span class="engage-overlay__hint">
+                <kbd>W</kbd> throttle up · <kbd>↑↓</kbd> pitch · <kbd>A/D</kbd> roll · drag mouse to look
+              </span>
             </div>
           </div>
 
@@ -568,11 +571,11 @@
                   <div class="flight-help__row"><kbd>C</kbd><span>Cycle camera view</span></div>
                   <div class="flight-help__row"><kbd>1</kbd><kbd>2</kbd><kbd>3</kbd><span>Cockpit / Chase / External</span></div>
                   <div class="flight-help__row"><kbd>P</kbd><span>Toggle PFD</span></div>
-                  <div class="flight-help__row"><kbd>Esc</kbd><span>Release pointer</span></div>
+                  <div class="flight-help__row"><span class="flight-help__pseudokey">drag</span><span>Look around (hold mouse to pan)</span></div>
                 </div>
               </div>
               <footer class="flight-help__foot">
-                <span class="t-meta">Mouse moves your head — ship heading is independent.</span>
+                <span class="t-meta">Click and drag to look around — ship heading is independent.</span>
               </footer>
             </div>
           </div>

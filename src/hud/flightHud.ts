@@ -646,26 +646,41 @@ export function mountFlightHud(args: Args): () => void {
   };
   window.addEventListener("keydown", onPfdKey);
 
-  // Engage overlay wiring ----------------------------------------------
+  // Engage overlay (just a tutorial hint card now — click-and-drag
+  // doesn't gate input). Show on activation, auto-hide after 4s or on
+  // first deliberate input.
+  let engageHideTimer: number | null = null;
   function setEngageVisible(visible: boolean): void {
     if (!engageOverlay) return;
     engageOverlay.dataset.visible = visible ? "true" : "false";
     engageOverlay.setAttribute("aria-hidden", visible ? "false" : "true");
+    if (engageHideTimer !== null) {
+      window.clearTimeout(engageHideTimer);
+      engageHideTimer = null;
+    }
+    if (visible) {
+      engageHideTimer = window.setTimeout(() => setEngageVisible(false), 4500);
+    }
   }
-  // Default to visible until a lock event tells us otherwise. Browsers may
-  // already auto-lock from the launch button gesture; the lock-change
-  // callback will hide us within a frame in that case.
-  setEngageVisible(true);
+  // Hide the hint as soon as the player drags or presses a flight key.
+  // We piggy-back on the lock-change event (now drag-state event) and
+  // dismiss on first activation.
   const unsubLock =
     args.onPointerLockChange?.((locked) => {
-      setEngageVisible(!locked);
+      if (locked) setEngageVisible(false);
     }) ?? (() => {});
 
-  // Reset visibility cleanly when leaving the flight screen so the next
-  // entry starts in the default minimal state (PFD hidden, help hidden).
+  // Reset visibility cleanly when leaving the flight screen, and show
+  // the engage hint card on first activation per session.
+  let firstActivationDone = false;
   const screenActiveObserver = new MutationObserver(() => {
     if (!screen) return;
-    if (!screen.classList.contains("is-active")) {
+    if (screen.classList.contains("is-active")) {
+      if (!firstActivationDone) {
+        firstActivationDone = true;
+        setEngageVisible(true);
+      }
+    } else {
       setHelpVisible(false);
       setPfdVisible(false);
       setEngageVisible(false);
@@ -682,6 +697,7 @@ export function mountFlightHud(args: Args): () => void {
     cancelAnimationFrame(raf);
     observer.disconnect();
     screenActiveObserver.disconnect();
+    if (engageHideTimer !== null) window.clearTimeout(engageHideTimer);
     screen?.removeEventListener("click", requestLock);
     skipBtn?.removeEventListener("click", onSkipClick);
     helpToggleBtn?.removeEventListener("click", onHelpBtnClick);

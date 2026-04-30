@@ -127,11 +127,16 @@ export class FlightInput {
   private pendingMouseX = 0;
   private pendingMouseY = 0;
 
-  private isLocked = false;
+  /** True while the player is dragging the mouse to look around. */
+  private isDragging = false;
+  /** Last mouse client coords (used to compute dragging deltas). */
+  private lastMouseX = 0;
+  private lastMouseY = 0;
+
   private active = false;
   private bound = false;
 
-  /** Subscribers notified whenever pointer-lock state flips. */
+  /** Subscribers notified whenever drag state flips. */
   private lockListeners: Array<(locked: boolean) => void> = [];
 
   constructor(element: HTMLElement) {
@@ -146,22 +151,38 @@ export class FlightInput {
     }
     window.addEventListener("keydown", this.onKeyDown);
     window.addEventListener("keyup", this.onKeyUp);
-    document.addEventListener("pointerlockchange", this.onLockChange);
-    this.element.addEventListener("mousemove", this.onMouseMove);
+    // Click-and-drag camera control: mousedown on the canvas starts a
+    // drag session, mousemove (anywhere on window while dragging)
+    // accumulates delta, mouseup/leave ends the drag. This replaces
+    // pointer-lock mouse-look — no more accidental trackpad swipes.
+    this.element.addEventListener("mousedown", this.onMouseDown);
+    window.addEventListener("mousemove", this.onMouseMove);
+    window.addEventListener("mouseup", this.onMouseUp);
+    window.addEventListener("blur", this.onBlur);
+    // Touch support: mirror the mouse drag with single-finger touches.
+    this.element.addEventListener("touchstart", this.onTouchStart, { passive: true });
+    window.addEventListener("touchmove", this.onTouchMove, { passive: true });
+    window.addEventListener("touchend", this.onTouchEnd);
     this.bound = true;
     this.active = true;
   }
 
-  /** Stop reading input. Lock is released by host. */
+  /** Stop reading input. */
   stop(): void {
     this.active = false;
     if (this.bound) {
       window.removeEventListener("keydown", this.onKeyDown);
       window.removeEventListener("keyup", this.onKeyUp);
-      document.removeEventListener("pointerlockchange", this.onLockChange);
-      this.element.removeEventListener("mousemove", this.onMouseMove);
+      this.element.removeEventListener("mousedown", this.onMouseDown);
+      window.removeEventListener("mousemove", this.onMouseMove);
+      window.removeEventListener("mouseup", this.onMouseUp);
+      window.removeEventListener("blur", this.onBlur);
+      this.element.removeEventListener("touchstart", this.onTouchStart);
+      window.removeEventListener("touchmove", this.onTouchMove);
+      window.removeEventListener("touchend", this.onTouchEnd);
       this.bound = false;
     }
+    this.endDrag();
     this.releaseAll();
   }
 
@@ -190,10 +211,13 @@ export class FlightInput {
     this.mouseSensScale = Math.max(0.1, Math.min(4, scale));
   }
 
+  /**
+   * Legacy hook retained so existing call sites (e.g. flightHud's
+   * click-to-engage flow) compile. Click-and-drag mouse-look does not
+   * require pointer lock, so this is a no-op.
+   */
   requestPointerLock(): void {
-    if (!this.isLocked) {
-      this.element.requestPointerLock?.();
-    }
+    /* no-op — replaced by click-and-drag */
   }
 
   /**
@@ -264,9 +288,11 @@ export class FlightInput {
         9,
         dt,
       );
-    } else if (this.headLookEnabled) {
+    } else if (this.headLookEnabled && this.isDragging) {
+      // Click-and-drag: only consume mouse delta while the player is
+      // actively dragging. Trackpad-swipe annoyance gone.
       const expoCurve = (v: number) =>
-        Math.sign(v) * Math.pow(Math.abs(v), 1.4);
+        Math.sign(v) * Math.pow(Math.abs(v), 1.2);
       const sens = MOUSE_SENSITIVITY * this.mouseSensScale;
       const dyaw = expoCurve(this.pendingMouseX * sens);
       const dpitch = expoCurve(this.pendingMouseY * sens);
@@ -380,12 +406,11 @@ export class FlightInput {
     this.inputEvents.onAnyDeliberateInput?.();
   }
 
-  private readonly onLockChange = (): void => {
-    this.isLocked = document.pointerLockElement === this.element;
-    this.lockListeners.forEach((cb) => cb(this.isLocked));
-  };
-
-  /** Subscribe to pointer-lock state changes. Returns unsubscribe. */
+  /**
+   * Subscribe to drag-state changes. Reuses the pointer-lock listener
+   * API so the HUD's "click to engage" overlay can show/hide based on
+   * whether the player is currently dragging the camera.
+   */
   onPointerLockChange(cb: (locked: boolean) => void): () => void {
     this.lockListeners.push(cb);
     return () => {
@@ -393,16 +418,76 @@ export class FlightInput {
     };
   }
 
-  /** Read current pointer-lock state. */
+  /** Whether the player is currently click-dragging the camera. */
   get pointerLocked(): boolean {
-    return this.isLocked;
+    return this.isDragging;
   }
 
-  private readonly onMouseMove = (e: MouseEvent): void => {
-    if (!this.active || !this.isLocked) return;
-    this.pendingMouseX += e.movementX;
-    this.pendingMouseY += e.movementY;
+  private readonly onMouseDown = (e: MouseEvent): void => {
+    // Left button only; ignore clicks on the HUD chrome (handled by
+    // their own listeners — those events bubble up to window where we
+    // also catch mousemove/mouseup).
+    if (!this.active || e.button !== 0) return;
+    if (e.target instanceof HTMLButtonElement) return;
+    if (e.target instanceof HTMLAnchorElement) return;
+    this.beginDrag(e.clientX, e.clientY);
   };
+
+  private readonly onMouseMove = (e: MouseEvent): void => {
+    if (!this.active || !this.isDragging) return;
+    this.pendingMouseX += e.clientX - this.lastMouseX;
+    this.pendingMouseY += e.clientY - this.lastMouseY;
+    this.lastMouseX = e.clientX;
+    this.lastMouseY = e.clientY;
+  };
+
+  private readonly onMouseUp = (): void => {
+    this.endDrag();
+  };
+
+  private readonly onBlur = (): void => {
+    this.endDrag();
+  };
+
+  private readonly onTouchStart = (e: TouchEvent): void => {
+    if (!this.active) return;
+    const t = e.touches[0];
+    if (!t) return;
+    if (t.target instanceof HTMLButtonElement) return;
+    this.beginDrag(t.clientX, t.clientY);
+  };
+
+  private readonly onTouchMove = (e: TouchEvent): void => {
+    if (!this.active || !this.isDragging) return;
+    const t = e.touches[0];
+    if (!t) return;
+    this.pendingMouseX += t.clientX - this.lastMouseX;
+    this.pendingMouseY += t.clientY - this.lastMouseY;
+    this.lastMouseX = t.clientX;
+    this.lastMouseY = t.clientY;
+  };
+
+  private readonly onTouchEnd = (): void => {
+    this.endDrag();
+  };
+
+  private beginDrag(x: number, y: number): void {
+    if (this.isDragging) return;
+    this.isDragging = true;
+    this.lastMouseX = x;
+    this.lastMouseY = y;
+    this.element.classList.add("is-dragging");
+    this.lockListeners.forEach((cb) => cb(true));
+  }
+
+  private endDrag(): void {
+    if (!this.isDragging) return;
+    this.isDragging = false;
+    this.pendingMouseX = 0;
+    this.pendingMouseY = 0;
+    this.element.classList.remove("is-dragging");
+    this.lockListeners.forEach((cb) => cb(false));
+  }
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (!this.active) return;

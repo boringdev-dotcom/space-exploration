@@ -4034,3 +4034,37 @@
 .flight-help__close .material-symbols-outlined {
   font-size: 18px !important;
 }
+
+/* Click-and-drag camera cursor states. */
+#stage { cursor: grab; }
+#stage.is-dragging { cursor: grabbing; }
+
+/* Pseudo-key "drag" badge in help overlay. */
+.flight-help__pseudokey {
+  display: inline-block;
+  min-width: 38px;
+  padding: 2px 8px;
+  background: rgba(255, 186, 32, 0.12);
+  border: 1px solid rgba(255, 186, 32, 0.55);
+  border-radius: 4px;
+  text-align: center;
+  color: #ffd57a;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* Make the engage overlay smaller / less intrusive — it's a hint, not
+ * a hard gate now that pointer-lock isn't required. */
+.engage-overlay {
+  background: transparent;
+}
+.engage-overlay__panel {
+  padding: 14px 22px;
+  font-size: 11px;
+  background: var(--glass-bg-strong);
+}
+.engage-overlay__panel strong {
+  font-size: 14px;
+}
