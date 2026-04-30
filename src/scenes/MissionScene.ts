@@ -215,7 +215,6 @@ export class MissionScene implements SceneSlot {
   // Reusable scratch.
   private readonly _scratchVec = new THREE.Vector3();
   private readonly _scratchShake = new THREE.Vector3();
-  private readonly _scratchRadial = new THREE.Vector3();
   private readonly _scratchEuler = new THREE.Euler();
   private readonly _scratchLookMatrix = new THREE.Matrix4();
 
@@ -357,12 +356,14 @@ export class MissionScene implements SceneSlot {
     this.touchdownFiredHandoff = false;
     this.touchdownTween = null;
     this.surfaceFade = 0;
-    // Each new mission starts in autopilot. The player flips to manual
-    // by touching any flight key (wired in SceneManager).
-    if (this._controlMode !== "auto") {
+    // Mission starts in MANUAL: the player flies the rocket from Earth
+    // themselves. Engines are off, ship is parked on the pad pointed up.
+    // Hit W to throttle up and lift off; arrows + A/D to steer; Tab to
+    // engage autopilot if you want the rocket to fly itself.
+    if (this._controlMode !== "manual") {
       const prev = this._controlMode;
-      this._controlMode = "auto";
-      this.events.onControlModeChange?.("auto", prev);
+      this._controlMode = "manual";
+      this.events.onControlModeChange?.("manual", prev);
     }
     this.assist = { brake: false, retrograde: false, prograde: false, level: false };
     this.destinationModelLoadId++;
@@ -383,25 +384,19 @@ export class MissionScene implements SceneSlot {
       new THREE.Vector3(0, 1, 0),
     );
     this.dynamics.setPose(padPos, padQuat);
-    this.dynamics.frozen = true; // unfrozen on ignition
-
-    // ---------- Opening cinematic ----------
-    // Auto-ignition: the player never has to press W. The mission
-    // immediately launches.
+    // Ship is unfrozen and ready to integrate the moment the player
+    // touches throttle. No canned cinematic, no auto-ignition.
+    this.dynamics.frozen = false;
     this.ignited = true;
     this.phaseController.ignited = true;
 
-    // Stage 1: external view framing the rocket on the pad. We need the
-    // rig's followShip to be aware of the launch pose so the external
-    // anchor is dropped correctly relative to the rocket.
-    this.rig.followShip(this.dynamics.ship);
-    this.rig.setView("external", true);
-    // Pull the camera in close — 2.4 units back, 1.6 up — so the rocket
-    // reads as a hero against Earth, not a speck.
-    this.rig.dropExternalAnchor(2.4, 1.6);
-
-    this.openingStage = "exterior_intro";
+    // Skip the opening cinematic entirely — drop straight into cockpit
+    // view so the player is already at the controls when the scene
+    // appears.
+    this.openingStage = "cockpit";
     this.openingElapsed = 0;
+    this.rig.followShip(this.dynamics.ship);
+    this.rig.setView("cockpit", true);
   }
 
   /** Legacy entry point — autopilot-only experience auto-ignites. */
@@ -598,22 +593,10 @@ export class MissionScene implements SceneSlot {
       );
     }
 
-    // Liftoff is canned in `auto` mode; in manual / free-fly the player
-    // takes the stick the moment the opening cinematic completes.
-    if (this.phaseController.phase === "liftoff" && this.ignited) {
-      // During the brief "exterior_intro" stage we hold the ship still on
-      // the pad so the camera has time to read.
-      if (this.openingStage === "exterior_intro") {
-        this.autopilotThrottle = 0;
-      } else if (this._controlMode === "auto") {
-        this.driveLiftoff(deltaSec);
-      } else {
-        // Manual / free-fly during liftoff: skip the canned arc entirely.
-        // The dynamics integrator owns the ship from frame zero.
-        if (this.dynamics.frozen) this.exitCannedLiftoff();
-        this.runFlight(deltaSec);
-      }
-    } else if (this.phaseController.phase !== "liftoff") {
+    // The player flies the rocket from frame zero — even during the
+    // liftoff phase. `runFlight` branches by control mode (manual /
+    // free-fly = player input, auto = scripted autopilot).
+    if (this.ignited) {
       this.runFlight(deltaSec);
     }
 
@@ -1139,61 +1122,6 @@ export class MissionScene implements SceneSlot {
         }
         break;
       }
-    }
-  }
-
-  /* ============================================================
-   * Liftoff sequence
-   * ============================================================ */
-
-  private driveLiftoff(deltaSec: number): void {
-    this.dynamics.frozen = true;
-    this.liftoffElapsed = Math.min(
-      this.LIFTOFF_DURATION,
-      this.liftoffElapsed + deltaSec,
-    );
-    const t = this.liftoffElapsed / this.LIFTOFF_DURATION;
-    const eased = easeOutCubic(t);
-
-    // Earth-radial direction at the launch pad (initially +Y).
-    const ship = this.dynamics.ship;
-    this._scratchRadial.copy(ship.position).normalize();
-
-    // Vertical climb height (units): exponential build, peaks at ~12 units
-    // above pad by the end of the canned ramp.
-    const altitudeAbovePad = SHIP_PAD_OFFSET + eased * 12;
-    const newPos = this._scratchVec
-      .copy(this._scratchRadial)
-      .multiplyScalar(EARTH_RADIUS + altitudeAbovePad);
-
-    // Gravity-turn arc: as t advances, tilt the nose from +Y toward -Z so
-    // the ship leaves Earth pointed at the destination.
-    const tiltAngle = eased * (Math.PI / 2.4); // up to ~75°
-    const startQ = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 0, -1),
-      new THREE.Vector3(0, 1, 0),
-    );
-    const endQ = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 0, -1),
-      new THREE.Vector3(0, Math.cos(tiltAngle), -Math.sin(tiltAngle)).normalize(),
-    );
-    const q = startQ.clone().slerp(endQ, eased);
-
-    ship.position.copy(newPos);
-    ship.quaternion.copy(q);
-    // Velocity is implied by the canned position change.
-    ship.velocity
-      .copy(this._scratchRadial)
-      .multiplyScalar(eased * 12); // approximate derivative
-
-    if (t >= 1) {
-      // Hand off control: restore frozen, give the player a small initial
-      // velocity along their forward axis so the cruise feels seamless.
-      this.dynamics.frozen = false;
-      const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(
-        ship.quaternion,
-      );
-      ship.velocity.copy(forward).multiplyScalar(8); // ~800 km/s initial cruise
     }
   }
 

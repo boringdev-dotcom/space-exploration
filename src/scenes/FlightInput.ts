@@ -165,15 +165,15 @@ export class FlightInput {
     this.releaseAll();
   }
 
-  /** Reset to neutral cruise pose. */
+  /** Reset to engines-off pose at the launch pad. */
   reset(): void {
     this.pitchSpring.reset(0);
     this.yawSpring.reset(0);
     this.rollSpring.reset(0);
     this.headLookYawSpring.reset(0);
     this.headLookPitchSpring.reset(0);
-    this.throttle = 1;
-    this.throttleTarget = 1;
+    this.throttle = 0;
+    this.throttleTarget = 0;
     this.boostFuel = 1;
     this.boostHeld = false;
     this.deliberateFired = false;
@@ -313,13 +313,12 @@ export class FlightInput {
     }
 
 
-    // Throttle. W = increase target; S = decrease. Released = ease back to
-    // cruise (1.0). All eased so it never snaps.
-    if (this.keyW) this.throttleTarget = Math.min(2, this.throttleTarget + 0.9 * dt);
-    if (this.keyS) this.throttleTarget = Math.max(0, this.throttleTarget - 0.9 * dt);
-    if (!this.keyW && !this.keyS) {
-      this.throttleTarget = damp(this.throttleTarget, 1, 0.6, dt);
-    }
+    // Throttle. W = increase, S = decrease. The throttle HOLDS where you
+    // set it — no auto-recenter. This matches real aircraft / MSFS
+    // behaviour: the player parks the rocket on the pad with throttle 0
+    // and ramps it up themselves to lift off.
+    if (this.keyW) this.throttleTarget = Math.min(2, this.throttleTarget + 1.1 * dt);
+    if (this.keyS) this.throttleTarget = Math.max(0, this.throttleTarget - 1.1 * dt);
     this.throttle = damp(this.throttle, this.throttleTarget, 4.5, dt);
 
     // Boost: drains while held, recharges when released.

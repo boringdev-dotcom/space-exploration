@@ -339,21 +339,15 @@ export class SceneManager {
         }
         this.swapScene(this.mission);
         this.mission.beginMission(this.selectedPlanet);
-        // Mission starts in calm liftoff feel — bloom ramps up via phase
-        // biases when we hit cruise.
+        // Mission starts on the pad with engines off. Bloom + atmosphere
+        // only ramp up when the player ignites + reaches cruise.
         this.post.setIntensity("default");
-        playCue("launch");
+        playCue("click");
         startDrone();
         this.flightInput.reset();
         this.flightInput.start();
-        // Try to auto-engage pointer lock on the back of the launch
-        // button gesture. If the browser denies (no recent gesture), the
-        // existing click-on-canvas path remains as a fallback.
-        try {
-          this.flightInput.requestPointerLock();
-        } catch {
-          /* swallow — pointer lock not available */
-        }
+        // No pointer-lock auto-grab — camera is now click-and-drag, not
+        // mouse-look. The player drags the canvas to orbit the camera.
         break;
       }
       case "surface": {
