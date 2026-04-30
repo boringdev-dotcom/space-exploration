@@ -100,6 +100,10 @@ export class FlightInput {
   private keyS = false;
   private keyQ = false;
   private keyE = false;
+  // A/D mirror Q/E for roll — MSFS-style "roll on home row" works for
+  // anyone who's never touched a flight sim before.
+  private keyA = false;
+  private keyD = false;
   private keyUp = false;
   private keyDown = false;
   private keyLeft = false;
@@ -212,8 +216,12 @@ export class FlightInput {
       return this.snapshot();
     }
 
-    // Ship steering — arrow keys + Q/E roll.
-    const keyRoll = Number(this.keyE) - Number(this.keyQ);
+    // Ship steering — arrow keys + Q/E or A/D for roll.
+    const keyRoll =
+      Number(this.keyE) -
+      Number(this.keyQ) +
+      Number(this.keyD) -
+      Number(this.keyA);
     const arrowPitch = Number(this.keyDown) - Number(this.keyUp);
     const arrowYaw = Number(this.keyRight) - Number(this.keyLeft);
 
@@ -357,6 +365,7 @@ export class FlightInput {
   private releaseAll(): void {
     this.keyW = this.keyS = false;
     this.keyQ = this.keyE = false;
+    this.keyA = this.keyD = false;
     this.keyUp = this.keyDown = this.keyLeft = this.keyRight = false;
     this.keySpace = false;
     this.keyB = this.keyR = this.keyT = this.keyZ = this.keyV = false;
@@ -407,6 +416,8 @@ export class FlightInput {
       case "KeyS": this.keyS = true; this.fireDeliberate(); break;
       case "KeyQ": this.keyQ = true; this.fireDeliberate(); break;
       case "KeyE": this.keyE = true; this.fireDeliberate(); break;
+      case "KeyA": this.keyA = true; this.fireDeliberate(); break;
+      case "KeyD": this.keyD = true; this.fireDeliberate(); break;
       case "ArrowUp": this.keyUp = true; this.fireDeliberate(); break;
       case "ArrowDown": this.keyDown = true; this.fireDeliberate(); break;
       case "ArrowLeft": this.keyLeft = true; this.fireDeliberate(); break;
@@ -450,6 +461,8 @@ export class FlightInput {
       case "KeyS": this.keyS = false; break;
       case "KeyQ": this.keyQ = false; break;
       case "KeyE": this.keyE = false; break;
+      case "KeyA": this.keyA = false; break;
+      case "KeyD": this.keyD = false; break;
       case "ArrowUp": this.keyUp = false; break;
       case "ArrowDown": this.keyDown = false; break;
       case "ArrowLeft": this.keyLeft = false; break;

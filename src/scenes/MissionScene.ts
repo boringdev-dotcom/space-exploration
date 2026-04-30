@@ -517,10 +517,19 @@ export class MissionScene implements SceneSlot {
         this.phaseController.forcePhase("cruise");
       }
     }
-    // If we're toggling auto → manual mid-canned-liftoff, end the canned arc
-    // so the player has authority immediately.
-    if (mode !== "auto" && this.dynamics.frozen && this.phaseController.phase === "liftoff") {
-      this.exitCannedLiftoff();
+    // If we're toggling auto → manual at any point during the opening
+    // cinematic / canned liftoff, abort the cinematic and hand the player
+    // the stick immediately.
+    if (mode !== "auto") {
+      if (this.openingStage !== "cockpit") {
+        this.openingStage = "cockpit";
+        this.openingElapsed = 0;
+        this.rig.setView("cockpit");
+        this.rig.beginCinematicCockpitFade(0.4);
+      }
+      if (this.dynamics.frozen && this.phaseController.phase === "liftoff") {
+        this.exitCannedLiftoff();
+      }
     }
     this.events.onControlModeChange?.(mode, prev);
   }
