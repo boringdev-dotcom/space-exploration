@@ -87,6 +87,7 @@ export function mountFlightHud(args: Args): () => void {
   // Control-mode pill
   const controlPill = document.getElementById("flight-control-mode-pill");
   const controlLabel = document.getElementById("flight-control-mode-label");
+  const controlTabHint = document.getElementById("flight-control-tab-hint");
 
   // Help + engage overlays
   const helpOverlay = document.getElementById("flight-help-overlay");
@@ -548,42 +549,8 @@ export function mountFlightHud(args: Args): () => void {
   };
   skipBtn?.addEventListener("click", onSkipClick);
 
-  // Control-mode pill wiring -------------------------------------------
-  let currentControlMode: ControlMode = args.getControlMode?.() ?? "auto";
-  applyControlMode(currentControlMode, true);
-  const unsubControlMode =
-    args.onControlModeChange?.((mode) => {
-      currentControlMode = mode;
-      applyControlMode(mode);
-      // Free-fly hides the skip pill (no destination to skip to).
-      if (skipBtn) {
-        skipBtn.dataset.disabled = mode === "free-fly" ? "true" : "false";
-      }
-      if (phaseStrip) {
-        phaseStrip.dataset.paused = mode === "free-fly" ? "true" : "false";
-      }
-    }) ?? (() => {});
-
-  function applyControlMode(mode: ControlMode, instant = false): void {
-    if (controlLabel) {
-      controlLabel.textContent =
-        mode === "auto"
-          ? "AUTOPILOT"
-          : mode === "manual"
-            ? "MANUAL FLIGHT"
-            : "FREE FLIGHT";
-    }
-    if (controlPill) {
-      controlPill.dataset.mode = mode;
-      if (!instant) {
-        controlPill.classList.remove("is-flashing");
-        void controlPill.offsetWidth;
-        controlPill.classList.add("is-flashing");
-      }
-    }
-  }
-
-  // Help + PFD toggle wiring -------------------------------------------
+  // Help + PFD toggle wiring (declared before control-mode so applyControlMode
+  // can sync TAB hint text and default PFD visibility with mode).
   const helpToggleBtn = document.getElementById(
     "flight-help-toggle",
   ) as HTMLButtonElement | null;
@@ -645,6 +612,50 @@ export function mountFlightHud(args: Args): () => void {
     }
   };
   window.addEventListener("keydown", onPfdKey);
+
+  // Control-mode pill wiring -------------------------------------------
+  let currentControlMode: ControlMode = args.getControlMode?.() ?? "auto";
+  applyControlMode(currentControlMode, true);
+  const unsubControlMode =
+    args.onControlModeChange?.((mode) => {
+      currentControlMode = mode;
+      applyControlMode(mode);
+      // Free-fly hides the skip pill (no destination to skip to).
+      if (skipBtn) {
+        skipBtn.dataset.disabled = mode === "free-fly" ? "true" : "false";
+      }
+      if (phaseStrip) {
+        phaseStrip.dataset.paused = mode === "free-fly" ? "true" : "false";
+      }
+    }) ?? (() => {});
+
+  function applyControlMode(mode: ControlMode, instant = false): void {
+    if (controlLabel) {
+      controlLabel.textContent =
+        mode === "auto"
+          ? "AUTOPILOT"
+          : mode === "manual"
+            ? "MANUAL FLIGHT"
+            : "FREE FLIGHT";
+    }
+    if (controlTabHint) {
+      controlTabHint.textContent =
+        mode === "manual" ? "[Autopilot]" : "manual";
+    }
+    if (mode === "manual") {
+      setPfdVisible(true);
+    } else if (mode === "auto") {
+      setPfdVisible(false);
+    }
+    if (controlPill) {
+      controlPill.dataset.mode = mode;
+      if (!instant) {
+        controlPill.classList.remove("is-flashing");
+        void controlPill.offsetWidth;
+        controlPill.classList.add("is-flashing");
+      }
+    }
+  }
 
   // Engage overlay (just a tutorial hint card now — click-and-drag
   // doesn't gate input). Show on activation, auto-hide after 4s or on
