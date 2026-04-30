@@ -155,7 +155,24 @@ export class CockpitRig {
    */
   private readonly _smoothShipPos = new THREE.Vector3();
   private readonly _smoothShipQuat = new THREE.Quaternion();
+  /**
+   * Forward vector cached from `_smoothShipQuat`. Pre-computed each frame
+   * so cockpit eye and look point share a single low-pass filter — eye
+   * is `_smoothShipPos`, look is `_smoothShipPos + _smoothShipForward * 10`.
+   * Without this, a freshly-evaluated quat for each call could
+   * (in principle) introduce sub-frame drift between the two.
+   */
+  private readonly _smoothShipForward = new THREE.Vector3(0, 0, -1);
   private smoothShipInitialized = false;
+
+  /**
+   * Cockpit "agility" signal (0..1) — driven by the host from the
+   * player's pitch+yaw+roll rates. At rest the rig applies very strong
+   * second-stage smoothing on the cockpit pose (λ=25, kills sub-frame
+   * jitter); during maneuvers it relaxes to λ=14 so input tracks
+   * without visible lag.
+   */
+  private cockpitAgility = 0;
 
   /**
    * Smoothed camera up vector. Cockpit head-look pivots around camera.up,
@@ -383,10 +400,24 @@ export class CockpitRig {
    * Head-look offsets (radians). Mouse-driven; applied on top of the rig's
    * baseline camera orientation each frame so the player can look around the
    * cabin without affecting ship heading. Values come from `FlightInput`.
+   *
+   * Sub-millidegree values are dead-zoned to exact 0 so a never-quite-zero
+   * spring tail can't keep firing `rotateOnWorldAxis` and producing
+   * accumulator drift in the cockpit camera orientation.
    */
   setHeadLook(yaw: number, pitch: number): void {
-    this.headLookYaw = yaw;
-    this.headLookPitch = pitch;
+    const dz = 0.0008;
+    this.headLookYaw = Math.abs(yaw) < dz ? 0 : yaw;
+    this.headLookPitch = Math.abs(pitch) < dz ? 0 : pitch;
+  }
+
+  /**
+   * Player-input agility signal (0..1) — used to relax the cockpit
+   * smoothing during intentional maneuvers and tighten it at rest. See
+   * `cockpitAgility` for the math.
+   */
+  setCockpitAgility(value: number): void {
+    this.cockpitAgility = Math.max(0, Math.min(1, value));
   }
 
   /**
@@ -475,6 +506,13 @@ export class CockpitRig {
         this._smoothShipQuat.slerp(this.shipState.quaternion, sw);
         this._smoothShipQuat.normalize();
       }
+      // Cache the forward derived from the smoothed quaternion. Cockpit
+      // eye + look both reference this single vector, guaranteeing the
+      // line-of-sight remains rock-solid even if the smoothed quat
+      // wobbles by a millidegree per frame.
+      this._smoothShipForward
+        .set(0, 0, -1)
+        .applyQuaternion(this._smoothShipQuat);
     }
 
     // Advance the unified mode crossfade. `viewT` runs 0 → 1 over
@@ -569,9 +607,15 @@ export class CockpitRig {
         this._smoothCockpitLook.copy(rawLook);
         this.cockpitSmoothInitialized = true;
       } else {
-        // 18 / sec — settles within ~3 frames at 60fps. High enough that
-        // intentional autopilot heading changes still feel instantaneous.
-        const lambda = 18;
+        // Agility-aware second-stage smoothing.
+        //   At rest (agility = 0) we run λ=25 — kills sub-frame jitter
+        //   so the cockpit is genuinely rock-solid during cruise /
+        //   liftoff hold. 25/s settles in ~2 frames at 60Hz so the
+        //   filter is invisible.
+        //   While maneuvering (agility = 1) we drop to λ=14 so the
+        //   smoothed pose tracks intentional pitch/yaw/roll commands
+        //   without any visible lag.
+        const lambda = 25 - 11 * this.cockpitAgility;
         dampVec3(this._smoothCockpitEye, rawEye, lambda, dt);
         dampVec3(this._smoothCockpitLook, rawLook, lambda, dt);
       }
@@ -674,15 +718,14 @@ export class CockpitRig {
     // so we don't induce ROLL drift. Weight by cockpit's blend share so
     // the head-look fades out as we move into chase / external.
     if (cockpitWeight > 0.001) {
-      // Rotate around the camera's CURRENT up axis (which now matches the
-      // ship's local up when in cockpit mode — set above before lookAt).
-      // Using camera.up keeps the head-look yaw anchored to "ship up" so
-      // when the rocket rolls, looking left still goes left from the
-      // pilot's POV. Pitch rotates around the camera's local X.
       const yaw = this.headLookYaw * cockpitWeight;
       const pitch = this.headLookPitch * cockpitWeight;
-      this.camera.rotateOnWorldAxis(this.camera.up, yaw);
-      this.camera.rotateX(pitch);
+      // Rotate around the camera's CURRENT up axis (which now matches the
+      // ship's local up when in cockpit mode — set above before lookAt).
+      // Skip the rotation when the value is exactly zero so we don't
+      // accumulate float-precision noise during steady forward flight.
+      if (yaw !== 0) this.camera.rotateOnWorldAxis(this.camera.up, yaw);
+      if (pitch !== 0) this.camera.rotateX(pitch);
     }
 
     // Visibility:
@@ -761,14 +804,15 @@ export class CockpitRig {
     if (mode === "cockpit") {
       if (ship) {
         // Use the SMOOTHED ship pose so per-frame integrator chatter
-        // never reaches the pilot's eye. The smoothed pose tracks
-        // intentional steering within ~3 frames at 60Hz, but filters
-        // out the sub-frame jitter that previously read as cockpit
-        // shake.
+        // never reaches the pilot's eye. Eye and look both reference
+        // `_smoothShipForward` (cached above from `_smoothShipQuat`)
+        // so they share the same low-pass filter — the line-of-sight
+        // direction can't drift relative to the eye position even by
+        // a millidegree.
         outPos.copy(this._smoothShipPos);
         outLook
-          .set(0, 0, -10)
-          .applyQuaternion(this._smoothShipQuat)
+          .copy(this._smoothShipForward)
+          .multiplyScalar(10)
           .add(this._smoothShipPos);
       } else {
         outPos.copy(this.root.position).add(COCKPIT_OFFSET);
