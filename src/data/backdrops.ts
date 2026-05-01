@@ -23,7 +23,7 @@ export const BACKDROPS: Backdrop[] = [
       "Photoreal interior of a NASA-style rocket assembly building, vast steel girders, gantry catwalks, " +
       "sodium work lights casting amber pools, distant blue floodlights, polished concrete floor, deep shadows, " +
       "no rockets, no humans, eye-level perspective looking forward into the bay.",
-    splatUrl: "https://sparkjs.dev/assets/splats/butterfly.spz",
+    splatUrl: "",
     pose: {
       position: [0, 0, 0],
       rotation: [0, 0, 0],

@@ -176,7 +176,7 @@ export class HangarScene implements SceneSlot {
   private async maybeLoadBackdrop(): Promise<void> {
     if (!this.spark || this.backdropSplat) return;
     const backdrop = BACKDROPS.find((b) => b.id === "hangarBay");
-    if (!backdrop) return;
+    if (!backdrop?.splatUrl) return;
     if (backdrop.splatUrl.startsWith(MOCK_SPLAT_PREFIX)) return;
     try {
       const splat = new SplatMesh({ url: backdrop.splatUrl });
