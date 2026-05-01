@@ -223,6 +223,7 @@ export class MissionScene implements SceneSlot {
   /** Touchdown handoff tween — camera detaches from ship for 1.2s before walking. */
   private touchdownTween: Tween | null = null;
   private touchdownFiredHandoff = false;
+  private touchdownHandoffToken = 0;
 
   // Reusable scratch.
   private readonly _scratchVec = new THREE.Vector3();
@@ -391,6 +392,7 @@ export class MissionScene implements SceneSlot {
     this.phaseController.paused = false;
     this.liftoffElapsed = 0;
     this.touchdownFiredHandoff = false;
+    this.touchdownHandoffToken += 1;
     this.touchdownTween = null;
     this.surfaceFade = 0;
     // Mission starts in MANUAL: the player flies the rocket from Earth
@@ -478,11 +480,14 @@ export class MissionScene implements SceneSlot {
     // Pre-load the surface splat now so it's ready by the time we settle.
     this.beginTouchdown();
 
-    // Drop straight through touchdown into the landed handoff. This is the
-    // only path that intentionally short-circuits the descent; normal flight
-    // still progresses through the phase machine and hover-down autopilot.
+    // Drop straight through touchdown into the landed phase for HUD/audio
+    // consistency, then schedule the surface handoff with a browser timer.
+    // The timer makes the shortcut deterministic even if the render loop is
+    // momentarily busy streaming splats/GLBs and cannot advance the normal
+    // Tween-driven handoff on that exact frame.
     this.phaseController.forcePhase("touchdown");
     this.phaseController.forcePhase("landed");
+    this.scheduleTouchdownHandoff(1.2);
   }
 
   enter(): void {
@@ -1333,22 +1338,37 @@ export class MissionScene implements SceneSlot {
 
   private beginLandedHandoff(): void {
     if (this.touchdownFiredHandoff) return;
-    this.touchdownFiredHandoff = true;
     // Snap velocity to zero so the camera handoff is rock-steady.
     this.dynamics.ship.velocity.set(0, 0, 0);
     this.dynamics.frozen = true;
 
     // Tween covers a brief 1.2s "cabin settle" before the handoff fires.
+    this.touchdownFiredHandoff = true;
+    const token = ++this.touchdownHandoffToken;
     this.touchdownTween = new Tween(1.2, easeOutCubic, () => {}, () => {
-      const ship = this.dynamics.ship;
-      this.events.onTouchdown?.({
-        spawnPose: {
-          position: ship.position.clone(),
-          quaternion: ship.quaternion.clone(),
-        },
-      });
+      this.fireTouchdownHandoff(token);
     });
     this.touchdownTween.start();
+  }
+
+  private scheduleTouchdownHandoff(delaySec: number): void {
+    if (this.touchdownFiredHandoff) return;
+    this.touchdownFiredHandoff = true;
+    this.dynamics.ship.velocity.set(0, 0, 0);
+    this.dynamics.frozen = true;
+    const token = ++this.touchdownHandoffToken;
+    window.setTimeout(() => this.fireTouchdownHandoff(token), delaySec * 1000);
+  }
+
+  private fireTouchdownHandoff(token: number): void {
+    if (token !== this.touchdownHandoffToken) return;
+    const ship = this.dynamics.ship;
+    this.events.onTouchdown?.({
+      spawnPose: {
+        position: ship.position.clone(),
+        quaternion: ship.quaternion.clone(),
+      },
+    });
   }
 
   private computeShake(
