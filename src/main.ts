@@ -19,6 +19,25 @@ function bootstrap(): void {
   const manager = new SceneManager(canvas);
   mountDebugHud({ manager });
 
+  // Dev-only URL hook: `?surface=europa` jumps straight to the surface
+  // scene for the given planet id, skipping hangar/launch/flight. Handy
+  // for iterating on the surface scene or its procedural fallback without
+  // flying the whole mission each time. Gated behind `import.meta.env.DEV`
+  // so it never ships in production builds.
+  if (import.meta.env.DEV) {
+    const params = new URLSearchParams(window.location.search);
+    const surfaceId = params.get("surface");
+    if (surfaceId) {
+      void import("./data/planets").then(({ getPlanet }) => {
+        try {
+          manager.forceSurfaceForDebug(getPlanet(surfaceId));
+        } catch (err) {
+          console.warn("[main] ?surface=", surfaceId, err);
+        }
+      });
+    }
+  }
+
   // Unlock audio on first user interaction (browsers block autoplay).
   const unlock = (): void => {
     unlockAudio();
