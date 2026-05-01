@@ -2348,12 +2348,14 @@
   padding: calc(var(--top-bar-h) + 28px) 32px 32px calc(var(--side-nav-w) + 32px);
   pointer-events: none;
   opacity: 0;
+  visibility: hidden;
   transition: opacity 180ms ease;
   z-index: 24;
 }
 
 .surface-destination-modal.is-open {
   opacity: 1;
+  visibility: visible;
   pointer-events: auto;
 }
 
