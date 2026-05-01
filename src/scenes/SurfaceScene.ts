@@ -30,7 +30,7 @@ export interface SurfaceRocketInteractionSnapshot {
 }
 
 const ROCKET_LANDING_POSITION = new THREE.Vector3(5.6, 0, -9.2);
-const ROCKET_BOARD_RANGE = 4.8;
+const ROCKET_BOARD_RANGE = 12;
 const ROCKET_HINT_RANGE = 12;
 const ROCKET_TARGET_DIAMETER = 5.25;
 
