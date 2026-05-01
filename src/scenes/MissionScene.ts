@@ -481,13 +481,27 @@ export class MissionScene implements SceneSlot {
     this.beginTouchdown();
 
     // Drop straight through touchdown into the landed phase for HUD/audio
-    // consistency, then schedule the surface handoff with a browser timer.
-    // The timer makes the shortcut deterministic even if the render loop is
-    // momentarily busy streaming splats/GLBs and cannot advance the normal
-    // Tween-driven handoff on that exact frame.
+    // consistency, then fire the surface handoff synchronously. Skip is a
+    // user-facing convenience action, so it must never depend on a render-loop
+    // tween or timer that can be delayed while splats/GLBs are streaming.
     this.phaseController.forcePhase("touchdown");
     this.phaseController.forcePhase("landed");
-    this.scheduleTouchdownHandoff(1.2);
+    this.forceSurfaceHandoffForDebug();
+  }
+
+  /**
+   * Immediate surface handoff helper. Public on purpose for dev/manual
+   * verification from `window.__manager.mission` when testing surface-only
+   * features without replaying a full cruise.
+   */
+  forceSurfaceHandoffForDebug(): void {
+    this.phaseController.forcePhase("landed");
+    this.touchdownFiredHandoff = true;
+    this.touchdownTween = null;
+    this.dynamics.ship.velocity.set(0, 0, 0);
+    this.dynamics.frozen = true;
+    const token = ++this.touchdownHandoffToken;
+    this.fireTouchdownHandoff(token);
   }
 
   enter(): void {
@@ -1349,15 +1363,6 @@ export class MissionScene implements SceneSlot {
       this.fireTouchdownHandoff(token);
     });
     this.touchdownTween.start();
-  }
-
-  private scheduleTouchdownHandoff(delaySec: number): void {
-    if (this.touchdownFiredHandoff) return;
-    this.touchdownFiredHandoff = true;
-    this.dynamics.ship.velocity.set(0, 0, 0);
-    this.dynamics.frozen = true;
-    const token = ++this.touchdownHandoffToken;
-    window.setTimeout(() => this.fireTouchdownHandoff(token), delaySec * 1000);
   }
 
   private fireTouchdownHandoff(token: number): void {
