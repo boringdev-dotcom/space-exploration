@@ -302,6 +302,17 @@ export class SceneManager {
     this.flightInput.requestPointerLock();
   }
 
+  /**
+   * Dev/test helper for the surface loop. It intentionally goes through the
+   * manager (rather than MissionScene) so manual browser tests can force the
+   * same selected-planet + surface-state wiring that a real touchdown uses.
+   */
+  forceSurfaceForDebug(planet: Planet = this.selectedPlanet ?? getPlanet("mars")): void {
+    this.selectedPlanet = planet;
+    this.surface.cancelBoarding();
+    this.setState("surface");
+  }
+
   /* ============================================================
    * State machine
    * ============================================================ */

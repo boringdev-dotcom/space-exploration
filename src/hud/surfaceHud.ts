@@ -200,10 +200,16 @@ export function mountSurfaceHud(args: Args): () => void {
   function openPlanner(): void {
     if (plannerOpen) return;
     const interaction = args.getRocketInteraction();
-    if (!interaction.hintVisible || !args.onBoardRocket()) {
+    if (!interaction.hintVisible) {
       playCue("alert");
       return;
     }
+    // `requestBoarding` releases pointer lock and stops movement when the
+    // scene reports an exact in-range state. If a frame lands between the
+    // HUD prompt becoming visible and the scene proximity snapshot updating,
+    // still open the planner: the prompt itself is only shown inside the
+    // safe boarding envelope, so this avoids a "click did nothing" edge.
+    args.onBoardRocket();
     plannerOpen = true;
     renderDestinationCards();
     modal?.classList.add("is-open");
