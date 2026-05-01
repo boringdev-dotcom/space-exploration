@@ -120,7 +120,7 @@ export function mountSurfaceHud(args: Args): () => void {
       !plannerOpen;
     if (rocketPrompt) {
       rocketPrompt.classList.toggle("is-visible", showPrompt);
-      rocketPrompt.disabled = !interaction.inRange;
+      rocketPrompt.disabled = !showPrompt;
       rocketPrompt.setAttribute("aria-hidden", showPrompt ? "false" : "true");
       rocketPrompt.dataset.inRange = String(interaction.inRange);
     }
@@ -199,7 +199,8 @@ export function mountSurfaceHud(args: Args): () => void {
 
   function openPlanner(): void {
     if (plannerOpen) return;
-    if (!args.onBoardRocket()) {
+    const interaction = args.getRocketInteraction();
+    if (!interaction.hintVisible || !args.onBoardRocket()) {
       playCue("alert");
       return;
     }
