@@ -890,6 +890,20 @@ export class MissionScene implements SceneSlot {
    *                  the renderable region.
    */
   private runFlight(deltaSec: number): void {
+    // Touchdown is a precision hover-settle, not free manual flight. Once
+    // the phase machine (or the Skip to Landing shortcut) enters touchdown,
+    // let the landing autopilot own the final metres so the ship cannot drift
+    // or accelerate away under a stale manual throttle input before the
+    // surface handoff fires.
+    const phase = this.phaseController.phase;
+    if (
+      this._controlMode !== "free-fly" &&
+      (phase === "touchdown" || phase === "landed")
+    ) {
+      this.runAutopilot(deltaSec);
+      return;
+    }
+
     if (this._controlMode === "auto") {
       this.runAutopilot(deltaSec);
       return;
