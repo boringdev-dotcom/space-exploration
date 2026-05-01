@@ -44,10 +44,12 @@ export function mountSurfaceHud(args: Args): () => void {
 
   let raf = 0;
   let plannerOpen = false;
+  let pointerLocked = false;
   let selectedPlanet: Planet | null = null;
   const destinationCards = new Map<string, HTMLButtonElement>();
 
   args.onPointerLockState((locked) => {
+    pointerLocked = locked;
     if (lockPrompt) lockPrompt.classList.toggle("is-hidden", locked || plannerOpen);
   });
 
@@ -114,9 +116,14 @@ export function mountSurfaceHud(args: Args): () => void {
           : "Vehicle offline";
     }
 
+    // Spawn is within boarding hint range, so the full-width rocket CTA can
+    // sit on top of the canvas and steal clicks meant for pointer lock.
+    // Only surface the boarding affordance after the player has engaged
+    // walk mode (then ESC hides it again until they re-click to engage).
     const showPrompt =
       Boolean(screen?.classList.contains("is-active")) &&
       interaction.hintVisible &&
+      pointerLocked &&
       !plannerOpen;
     if (rocketPrompt) {
       rocketPrompt.classList.toggle("is-visible", showPrompt);
