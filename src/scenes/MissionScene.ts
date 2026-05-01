@@ -453,13 +453,14 @@ export class MissionScene implements SceneSlot {
     const dest = this.phaseController.destinationCenter;
     const destRadius = this.phaseController.destinationRadius;
 
-    // Place the ship ~6 units above the destination surface along a
-    // stable radial (we pick +Y so the world lighting reads cleanly),
-    // pointed radially outward.
+    // Place the ship at the same settled hover point the touchdown
+    // autopilot converges to. Skip-to-landing is a test / convenience
+    // shortcut, so it should deterministically exercise the surface handoff
+    // instead of depending on a few seconds of damped descent timing.
     const radial = new THREE.Vector3(0, 1, 0); // arbitrary stable radial
     const pos = new THREE.Vector3()
       .copy(radial)
-      .multiplyScalar(destRadius + 5)
+      .multiplyScalar(destRadius + 0.4)
       .add(dest);
     const quat = new THREE.Quaternion().setFromUnitVectors(
       new THREE.Vector3(0, 0, -1),
@@ -474,12 +475,14 @@ export class MissionScene implements SceneSlot {
     this.openingStage = "cockpit";
     this.rig.setView("chase", true);
 
-    // Drop straight into touchdown phase — the new touchdown autopilot
-    // (damped position move toward the surface) handles the rest.
-    this.phaseController.forcePhase("touchdown");
-
     // Pre-load the surface splat now so it's ready by the time we settle.
     this.beginTouchdown();
+
+    // Drop straight through touchdown into the landed handoff. This is the
+    // only path that intentionally short-circuits the descent; normal flight
+    // still progresses through the phase machine and hover-down autopilot.
+    this.phaseController.forcePhase("touchdown");
+    this.phaseController.forcePhase("landed");
   }
 
   enter(): void {
