@@ -5,6 +5,9 @@ import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
 import type { SceneSlot } from "./Scene";
 import type { Planet } from "../data/planets";
 import type { SurfaceDebugSnapshot } from "../hud/debugHud";
+import { ARTEMIS_ROCKET_GLB_URL } from "../data/assetUrls";
+import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
+import { damp } from "../util/feel";
 
 export type SurfaceStatus =
   | "idle"
@@ -13,6 +16,23 @@ export type SurfaceStatus =
   | "error";
 
 type LockListener = (locked: boolean) => void;
+
+export interface SurfaceRocketInteractionSnapshot {
+  ready: boolean;
+  loading: boolean;
+  boarding: boolean;
+  distance: number;
+  inRange: boolean;
+  hintVisible: boolean;
+  boardRange: number;
+  hintRange: number;
+  currentPlanetId: string | null;
+}
+
+const ROCKET_LANDING_POSITION = new THREE.Vector3(5.6, 0, -9.2);
+const ROCKET_BOARD_RANGE = 4.8;
+const ROCKET_HINT_RANGE = 12;
+const ROCKET_TARGET_DIAMETER = 5.25;
 
 /**
  * Surface exploration scene — loads a Gaussian splat world via Spark.js
@@ -82,6 +102,23 @@ export class SurfaceScene implements SceneSlot {
   private readonly _camDir = new THREE.Vector3();
   private readonly _moveTarget = new THREE.Vector3();
   private readonly _up = new THREE.Vector3(0, 1, 0);
+  private readonly _rocketWorldPos = new THREE.Vector3();
+
+  // Landed rocket / repeat-flight interaction. This lives fully in
+  // Marble/Spark surface space (near the scan origin), not mission space.
+  private readonly rocketRoot = new THREE.Group();
+  private readonly rocketPad = new THREE.Group();
+  private rocketModel: THREE.Group | null = null;
+  private rocketLoadId = 0;
+  private rocketReady = false;
+  private rocketLoading = false;
+  private rocketDistance = Number.POSITIVE_INFINITY;
+  private rocketInRange = false;
+  private rocketHintVisible = false;
+  private rocketBoarding = false;
+  private rocketGlow = 0;
+  private currentPlanetId: string | null = null;
+  private readonly beaconLights: THREE.PointLight[] = [];
 
   constructor(spark: SparkRenderer, canvas: HTMLCanvasElement) {
     this.spark = spark;
@@ -105,9 +142,20 @@ export class SurfaceScene implements SceneSlot {
     // SparkRenderer is shared with FlightScene (cockpit splat) and only one
     // scene can own it at a time.
 
-    // No additional lighting or fog: Marble worlds bake their own lighting
-    // and atmospheric haze into the splat colours. Adding scene lights or fog
-    // would only desaturate / dim the photoreal output.
+    // Marble worlds bake their own lighting and atmospheric haze into the
+    // splat colours, but Three.js lights are still needed for the landed GLB
+    // rocket. Spark splat colours are baked, so these low-intensity lights
+    // do not wash the WorldLabs scene.
+    this.scene.add(new THREE.HemisphereLight(0xb9eaff, 0x1a120d, 0.58));
+    const rocketKey = new THREE.DirectionalLight(0xffe3bd, 1.9);
+    rocketKey.position.set(-4, 7, 5);
+    this.scene.add(rocketKey);
+    const rocketRim = new THREE.DirectionalLight(0x7de9ff, 1.35);
+    rocketRim.position.set(5, 3.5, -5);
+    this.scene.add(rocketRim);
+
+    this.buildLandedRocketSite();
+    this.scene.add(this.rocketRoot);
 
     this.controls = new PointerLockControls(this.camera, canvas);
     // Match the look feel of the reference character controller.
@@ -128,6 +176,8 @@ export class SurfaceScene implements SceneSlot {
     if (this.controls.isLocked) {
       this.controls.unlock();
     }
+    this.cancelBoarding();
+    this.resetMovement();
     if (this.spark.parent === this.scene) {
       this.scene.remove(this.spark);
     }
@@ -139,6 +189,11 @@ export class SurfaceScene implements SceneSlot {
     this._progress = 0;
     this._splatUrl = planet.splatUrl;
     this._lastError = null;
+    this.currentPlanetId = planet.id;
+    this.cancelBoarding();
+    this.resetMovement();
+    this.resetRocketState();
+    void this.loadRocketForSurface(++this.rocketLoadId);
 
     if (this.splat) {
       this.scene.remove(this.splat);
@@ -197,6 +252,8 @@ export class SurfaceScene implements SceneSlot {
   }
 
   update(delta: number, _elapsed: number): void {
+    this.updateRocketInteraction(delta, _elapsed);
+
     // Lerp factor based on `velocityXZSmoothing * accelerationTimeGrounded`.
     // The exponent 0.116 is what the reference controller uses to make the
     // response identical regardless of frame rate.
@@ -270,6 +327,18 @@ export class SurfaceScene implements SceneSlot {
       this.scene.remove(this.splat);
       this.splat.dispose?.();
     }
+    this.clearRocketModel();
+    this.scene.remove(this.rocketRoot);
+    this.rocketPad.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      mesh.geometry?.dispose?.();
+      const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(material)) {
+        material.forEach((mat) => mat.dispose());
+      } else {
+        material?.dispose?.();
+      }
+    });
   }
 
   /* Status surfacing */
@@ -281,6 +350,32 @@ export class SurfaceScene implements SceneSlot {
   }
   get isLocked(): boolean {
     return this.controls.isLocked;
+  }
+
+  getRocketInteraction(): SurfaceRocketInteractionSnapshot {
+    return {
+      ready: this.rocketReady,
+      loading: this.rocketLoading,
+      boarding: this.rocketBoarding,
+      distance: this.rocketDistance,
+      inRange: this.rocketInRange,
+      hintVisible: this.rocketHintVisible,
+      boardRange: ROCKET_BOARD_RANGE,
+      hintRange: ROCKET_HINT_RANGE,
+      currentPlanetId: this.currentPlanetId,
+    };
+  }
+
+  requestBoarding(): boolean {
+    if (!this.rocketReady || !this.rocketInRange) return false;
+    this.rocketBoarding = true;
+    if (this.controls.isLocked) this.controls.unlock();
+    this.resetMovement();
+    return true;
+  }
+
+  cancelBoarding(): void {
+    this.rocketBoarding = false;
   }
 
   /** Snapshot used by the on-screen debug HUD. */
@@ -359,7 +454,173 @@ export class SurfaceScene implements SceneSlot {
     this.camera.lookAt(0, this.eyeHeight, -10);
   }
 
+  private buildLandedRocketSite(): void {
+    this.rocketRoot.name = "surface.landedRocket";
+    this.rocketRoot.position.copy(ROCKET_LANDING_POSITION);
+    this.rocketRoot.rotation.y = -0.32;
+    this.rocketRoot.visible = false;
+
+    const scorchMat = new THREE.MeshBasicMaterial({
+      color: 0x050404,
+      transparent: true,
+      opacity: 0.48,
+      depthWrite: false,
+    });
+    const scorch = new THREE.Mesh(new THREE.CircleGeometry(3.8, 80), scorchMat);
+    scorch.name = "surface.landedRocket.scorch";
+    scorch.rotation.x = -Math.PI / 2;
+    scorch.position.y = 0.012;
+    this.rocketPad.add(scorch);
+
+    const ringMat = new THREE.MeshBasicMaterial({
+      color: 0x4cd6ff,
+      transparent: true,
+      opacity: 0.32,
+      side: THREE.DoubleSide,
+      depthWrite: false,
+    });
+    const ring = new THREE.Mesh(new THREE.RingGeometry(3.95, 4.15, 96), ringMat);
+    ring.name = "surface.landedRocket.padRing";
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.03;
+    this.rocketPad.add(ring);
+
+    const strutMat = new THREE.MeshBasicMaterial({
+      color: 0xffba20,
+      transparent: true,
+      opacity: 0.36,
+      depthWrite: false,
+    });
+    const strutGeom = new THREE.BoxGeometry(0.08, 0.018, 7.6);
+    for (let i = 0; i < 4; i++) {
+      const strut = new THREE.Mesh(strutGeom, strutMat);
+      strut.rotation.y = (Math.PI / 4) + (i * Math.PI) / 2;
+      strut.position.y = 0.045;
+      this.rocketPad.add(strut);
+    }
+
+    const coreGlow = new THREE.PointLight(0x5fe9ff, 1.3, 9, 1.8);
+    coreGlow.position.set(0, 0.45, 0);
+    this.beaconLights.push(coreGlow);
+    this.rocketPad.add(coreGlow);
+
+    const beaconGeom = new THREE.SphereGeometry(0.12, 16, 10);
+    const beaconMat = new THREE.MeshBasicMaterial({
+      color: 0x7df9ff,
+      transparent: true,
+      opacity: 0.78,
+    });
+    const beaconPositions: THREE.Vector3Tuple[] = [
+      [3.3, 0.18, 3.3],
+      [-3.3, 0.18, 3.3],
+      [3.3, 0.18, -3.3],
+      [-3.3, 0.18, -3.3],
+    ];
+    beaconPositions.forEach((pos) => {
+      const beacon = new THREE.Mesh(beaconGeom, beaconMat);
+      beacon.position.set(...pos);
+      this.rocketPad.add(beacon);
+      const light = new THREE.PointLight(0x7df9ff, 0.65, 5.5, 1.7);
+      light.position.set(...pos);
+      this.beaconLights.push(light);
+      this.rocketPad.add(light);
+    });
+
+    this.rocketRoot.add(this.rocketPad);
+  }
+
+  private resetRocketState(): void {
+    this.rocketReady = false;
+    this.rocketLoading = true;
+    this.rocketDistance = Number.POSITIVE_INFINITY;
+    this.rocketInRange = false;
+    this.rocketHintVisible = false;
+    this.rocketGlow = 0;
+    this.rocketRoot.visible = false;
+    this.clearRocketModel();
+  }
+
+  private async loadRocketForSurface(loadId: number): Promise<void> {
+    try {
+      const model = await loadNormalizedGltfModel(
+        ARTEMIS_ROCKET_GLB_URL,
+        ROCKET_TARGET_DIAMETER,
+      );
+      if (loadId !== this.rocketLoadId) {
+        disposeObjectTree(model);
+        return;
+      }
+
+      this.clearRocketModel();
+      model.name = "surface.landedRocket.artemis";
+      model.rotation.y = 0.18;
+      const box = new THREE.Box3().setFromObject(model);
+      if (Number.isFinite(box.min.y)) {
+        model.position.y += -box.min.y + 0.04;
+      }
+      model.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        mesh.castShadow = false;
+        mesh.receiveShadow = false;
+      });
+      this.rocketModel = model;
+      this.rocketRoot.add(model);
+      this.rocketReady = true;
+      this.rocketLoading = false;
+      this.rocketRoot.visible = true;
+    } catch (err) {
+      if (loadId !== this.rocketLoadId) return;
+      console.warn("[SurfaceScene] landed rocket failed to load", err);
+      this.rocketReady = false;
+      this.rocketLoading = false;
+      // Keep the pad hidden when the vehicle failed; the surface remains
+      // fully walkable and the HUD will not offer boarding.
+      this.rocketRoot.visible = false;
+    }
+  }
+
+  private clearRocketModel(): void {
+    if (!this.rocketModel) return;
+    this.rocketRoot.remove(this.rocketModel);
+    disposeObjectTree(this.rocketModel);
+    this.rocketModel = null;
+  }
+
+  private updateRocketInteraction(delta: number, elapsed: number): void {
+    this.rocketRoot.getWorldPosition(this._rocketWorldPos);
+    this.rocketDistance = this.camera.position.distanceTo(this._rocketWorldPos);
+    this.rocketInRange = this.rocketReady && this.rocketDistance <= ROCKET_BOARD_RANGE;
+    this.rocketHintVisible =
+      this.rocketReady &&
+      !this.rocketBoarding &&
+      this.rocketDistance <= ROCKET_HINT_RANGE;
+
+    const targetGlow = this.rocketInRange ? 1 : this.rocketHintVisible ? 0.45 : 0.12;
+    this.rocketGlow = damp(this.rocketGlow, targetGlow, 5.5, delta);
+    const pulse = 0.5 + 0.5 * Math.sin(elapsed * 3.2);
+    this.beaconLights.forEach((light, idx) => {
+      const phase = 0.65 + 0.35 * Math.sin(elapsed * 2.8 + idx * 1.1);
+      light.intensity = (0.22 + this.rocketGlow * 0.95) * (0.72 + pulse * 0.28) * phase;
+    });
+
+    this.rocketPad.scale.setScalar(1 + this.rocketGlow * 0.015);
+  }
+
+  private resetMovement(): void {
+    this.moveForward = false;
+    this.moveBackward = false;
+    this.moveLeft = false;
+    this.moveRight = false;
+    this.moveUp = false;
+    this.moveDown = false;
+    this.sprint = false;
+    this.horizontalVelocity.set(0, 0, 0);
+    this.verticalVelocity = 0;
+  }
+
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (this.rocketBoarding) return;
     switch (e.code) {
       case "KeyW":
       case "ArrowUp":

@@ -675,6 +675,67 @@
             <span>WASD to walk · Mouse to look · ESC to release</span>
           </div>
 
+          <button class="surface-rocket-prompt" id="surface-rocket-prompt" type="button" aria-hidden="true">
+            <span class="hud-bracket hud-bracket--tl"></span>
+            <span class="hud-bracket hud-bracket--tr"></span>
+            <span class="hud-bracket hud-bracket--bl"></span>
+            <span class="hud-bracket hud-bracket--br"></span>
+            <span class="surface-rocket-prompt__eyebrow">LANDED VEHICLE</span>
+            <strong>Board Vanguard</strong>
+            <span class="surface-rocket-prompt__copy">Press <kbd>E</kbd> or click to choose where to fly next.</span>
+            <span class="surface-rocket-prompt__distance">DIST <span id="surface-rocket-distance">—</span></span>
+          </button>
+
+          <div class="surface-destination-modal" id="surface-destination-modal" aria-hidden="true">
+            <div class="surface-destination-modal__backdrop"></div>
+            <div class="surface-destination-modal__panel">
+              <span class="hud-bracket hud-bracket--tl"></span>
+              <span class="hud-bracket hud-bracket--tr"></span>
+              <span class="hud-bracket hud-bracket--bl"></span>
+              <span class="hud-bracket hud-bracket--br"></span>
+              <header class="surface-destination-modal__head">
+                <div>
+                  <span class="t-label" id="surface-current-location">CURRENT LOCATION · —</span>
+                  <h2 class="t-display">Where to fly next?</h2>
+                </div>
+                <button class="flight-help__close" id="surface-destination-close" type="button" aria-label="Close destination planner">
+                  <span class="material-symbols-outlined">close</span>
+                </button>
+              </header>
+              <div class="surface-destination-modal__body">
+                <div id="surface-destination-grid" class="surface-destination-grid" aria-label="Surface departure destinations"></div>
+                <aside class="surface-destination-detail">
+                  <span class="t-label">TARGET PREVIEW</span>
+                  <h3 id="surface-destination-detail-name" class="t-headline">SELECT TARGET</h3>
+                  <p id="surface-destination-detail-flavor">Choose an outbound destination from the flight computer.</p>
+                  <div class="surface-destination-detail__stats">
+                    <div>
+                      <span class="t-label">DISTANCE</span>
+                      <strong id="surface-destination-detail-distance" class="t-mono hud-glow">—</strong>
+                    </div>
+                    <div>
+                      <span class="t-label">GRAVITY</span>
+                      <strong id="surface-destination-detail-gravity" class="t-mono hud-glow">—</strong>
+                    </div>
+                    <div>
+                      <span class="t-label">ATMOSPHERE</span>
+                      <strong id="surface-destination-detail-atmosphere" class="t-mono hud-glow">—</strong>
+                    </div>
+                    <div>
+                      <span class="t-label">TEMP</span>
+                      <strong id="surface-destination-detail-temp" class="t-mono hud-glow">—</strong>
+                    </div>
+                  </div>
+                  <button id="surface-destination-launch" class="btn btn--primary" type="button" disabled>
+                    <span class="material-symbols-outlined btn__icon">rocket_launch</span>
+                    Launch From Surface
+                    <span class="btn__shimmer"></span>
+                  </button>
+                </aside>
+              </div>
+            </div>
+          </div>
+
           <div class="surface-bottom">
             <div class="hud-card">
               <span class="hud-bracket hud-bracket--tl"></span>
@@ -707,6 +768,27 @@
                 <span class="material-symbols-outlined primary-dim">radar</span>
               </div>
               <p id="surface-flavor" class="surface-flavor">Awaiting target scan…</p>
+            </div>
+
+            <div class="hud-card surface-rocket-card">
+              <span class="hud-bracket hud-bracket--tl"></span>
+              <span class="hud-bracket hud-bracket--tr"></span>
+              <span class="hud-bracket hud-bracket--bl"></span>
+              <span class="hud-bracket hud-bracket--br"></span>
+              <div class="hud-card__head">
+                <span class="t-label">VANGUARD · return vehicle</span>
+                <span class="material-symbols-outlined primary-dim">rocket_launch</span>
+              </div>
+              <div class="bento bento--2">
+                <div>
+                  <span class="t-label">STATUS</span>
+                  <strong id="surface-rocket-status" class="t-mono hud-glow">RESOLVING</strong>
+                </div>
+                <div>
+                  <span class="t-label">BOARD RANGE</span>
+                  <strong id="surface-rocket-range" class="t-mono hud-glow">—</strong>
+                </div>
+              </div>
             </div>
           </div>
           <div class="grid-overlay" aria-hidden="true"></div>

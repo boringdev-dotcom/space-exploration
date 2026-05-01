@@ -508,9 +508,17 @@ export class SceneManager {
         getTarget: () => this.selectedPlanet,
         getStatus: () => this.surface.status,
         getProgress: () => this.surface.progress,
+        getRocketInteraction: () => this.surface.getRocketInteraction(),
         onLockRequest: () => this.surface.requestPointerLock(),
         onPointerLockState: (cb) => this.surface.onLockChange(cb),
         onReturn: () => this.setState("select"),
+        onBoardRocket: () => this.surface.requestBoarding(),
+        onCancelBoarding: () => this.surface.cancelBoarding(),
+        onLaunchFromSurface: (planet) => {
+          this.selectedPlanet = planet;
+          this.surface.cancelBoarding();
+          this.setState("mission");
+        },
       }),
     );
   }
