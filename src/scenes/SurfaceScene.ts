@@ -571,13 +571,91 @@ export class SurfaceScene implements SceneSlot {
       this.rocketRoot.visible = true;
     } catch (err) {
       if (loadId !== this.rocketLoadId) return;
-      console.warn("[SurfaceScene] landed rocket failed to load", err);
-      this.rocketReady = false;
+      console.warn(
+        "[SurfaceScene] landed rocket GLB failed; using procedural fallback",
+        err,
+      );
+      this.clearRocketModel();
+      const fallback = this.createFallbackRocketModel();
+      this.rocketModel = fallback;
+      this.rocketRoot.add(fallback);
+      this.rocketReady = true;
       this.rocketLoading = false;
-      // Keep the pad hidden when the vehicle failed; the surface remains
-      // fully walkable and the HUD will not offer boarding.
-      this.rocketRoot.visible = false;
+      this.rocketRoot.visible = true;
     }
+  }
+
+  private createFallbackRocketModel(): THREE.Group {
+    const group = new THREE.Group();
+    group.name = "surface.landedRocket.fallback";
+
+    const white = new THREE.MeshStandardMaterial({
+      color: 0xf1f6f8,
+      roughness: 0.42,
+      metalness: 0.18,
+    });
+    const orange = new THREE.MeshStandardMaterial({
+      color: 0xd87528,
+      roughness: 0.55,
+      metalness: 0.08,
+      emissive: 0x3a1404,
+      emissiveIntensity: 0.18,
+    });
+    const black = new THREE.MeshStandardMaterial({
+      color: 0x171b22,
+      roughness: 0.45,
+      metalness: 0.25,
+    });
+    const cyan = new THREE.MeshBasicMaterial({
+      color: 0x7df9ff,
+      transparent: true,
+      opacity: 0.68,
+    });
+
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.52, 4.1, 32), white);
+    core.position.y = 2.25;
+    group.add(core);
+
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.92, 32), white);
+    nose.position.y = 4.75;
+    group.add(nose);
+
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.68, 3.7, 32), orange);
+    tank.position.set(0, 1.95, 0.68);
+    group.add(tank);
+
+    const boosterGeom = new THREE.CylinderGeometry(0.22, 0.28, 3.35, 24);
+    [-0.55, 0.55].forEach((x) => {
+      const booster = new THREE.Mesh(boosterGeom, white);
+      booster.position.set(x, 1.82, -0.08);
+      group.add(booster);
+      const cap = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.36, 24), white);
+      cap.position.set(x, 3.67, -0.08);
+      group.add(cap);
+    });
+
+    const bandGeom = new THREE.CylinderGeometry(0.535, 0.535, 0.12, 32);
+    [1.1, 2.38, 3.52].forEach((y) => {
+      const band = new THREE.Mesh(bandGeom, black);
+      band.position.y = y;
+      group.add(band);
+    });
+
+    const finGeom = new THREE.BoxGeometry(0.12, 0.55, 0.78);
+    for (let i = 0; i < 4; i++) {
+      const fin = new THREE.Mesh(finGeom, black);
+      fin.position.set(Math.sin(i * Math.PI / 2) * 0.54, 0.38, Math.cos(i * Math.PI / 2) * 0.54);
+      fin.rotation.y = i * Math.PI / 2;
+      group.add(fin);
+    }
+
+    const window = new THREE.Mesh(new THREE.SphereGeometry(0.18, 20, 12), cyan);
+    window.position.set(0, 4.35, -0.37);
+    window.scale.set(1, 0.62, 0.18);
+    group.add(window);
+
+    group.rotation.set(0, 0.18, 0);
+    return group;
   }
 
   private clearRocketModel(): void {
