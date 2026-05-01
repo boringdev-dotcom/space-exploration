@@ -5,7 +5,11 @@ import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
 import type { SceneSlot } from "./Scene";
 import type { Planet } from "../data/planets";
 import type { SurfaceDebugSnapshot } from "../hud/debugHud";
-import { ARTEMIS_ROCKET_GLB_URL } from "../data/assetUrls";
+import {
+  ARTEMIS_ROCKET_GLB_URL,
+  isMockSplatUrl,
+} from "../data/assetUrls";
+import { createStarfield } from "../util/starfield";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 import { damp } from "../util/feel";
 
@@ -34,6 +38,27 @@ const ROCKET_BOARD_RANGE = 12;
 const ROCKET_HINT_RANGE = 12;
 const ROCKET_TARGET_DIAMETER = 5.25;
 
+/** Tiny deterministic PRNG so each planet's procedural rockfield is stable. */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s = (s + 0x6d2b79f5) >>> 0;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+function hashString(str: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
 /**
  * Surface exploration scene — loads a Gaussian splat world via Spark.js
  * and lets the user walk around with first-person controls.
@@ -52,6 +77,12 @@ export class SurfaceScene implements SceneSlot {
   private _splatUrl: string | null = null;
   private _lastError: string | null = null;
   private lockListeners: LockListener[] = [];
+
+  // Procedural fallback surface used when the planet's `splatUrl` still
+  // points at the Spark sample splat (i.e. `worlds:mock` was used instead
+  // of `worlds:generate`). A simple tinted ground plane + starfield beats
+  // dropping the player inside a giant butterfly demo asset.
+  private fallbackGroup: THREE.Group | null = null;
 
   // Touchdown spawn pose used to be persisted here so the player would
   // appear "wherever the ship landed". The ship's mission-space transform
@@ -200,6 +231,7 @@ export class SurfaceScene implements SceneSlot {
       this.splat.dispose?.();
       this.splat = null;
     }
+    this.clearFallbackSurface();
 
     // Reset the camera onto the scan origin and zero out any leftover motion.
     this.resetCameraPose(planet);
@@ -207,6 +239,22 @@ export class SurfaceScene implements SceneSlot {
     this.camera.updateProjectionMatrix();
     this.horizontalVelocity.set(0, 0, 0);
     this.verticalVelocity = 0;
+
+    // If the planet's splat still points at the Spark public sample
+    // (e.g. butterfly.spz from `npm run worlds:mock`), don't render it —
+    // drop in a planet-themed procedural ground + starfield instead so the
+    // player doesn't touch down inside a butterfly.
+    if (isMockSplatUrl(planet.splatUrl)) {
+      console.log(
+        "[SurfaceScene] planet uses mock splat URL; using procedural surface",
+        planet.id,
+        planet.splatUrl,
+      );
+      this.buildFallbackSurface(planet);
+      this._progress = 1;
+      this._status = "ready";
+      return;
+    }
 
     console.log("[SurfaceScene] loading splat", planet.id, planet.splatUrl);
     try {
@@ -327,6 +375,7 @@ export class SurfaceScene implements SceneSlot {
       this.scene.remove(this.splat);
       this.splat.dispose?.();
     }
+    this.clearFallbackSurface();
     this.clearRocketModel();
     this.scene.remove(this.rocketRoot);
     this.rocketPad.traverse((obj) => {
@@ -452,6 +501,120 @@ export class SurfaceScene implements SceneSlot {
     this.camera.position.set(0, this.eyeHeight, 0);
     this.camera.quaternion.identity();
     this.camera.lookAt(0, this.eyeHeight, -10);
+  }
+
+  /**
+   * Build a procedural planet-themed surface to stand in for a missing
+   * Marble splat. It's deliberately modest — a large tinted ground disc,
+   * a few scattered boulders, and a starfield sky — but it reads as "you
+   * landed on X" rather than "you landed inside a butterfly".
+   */
+  private buildFallbackSurface(planet: Planet): void {
+    const group = new THREE.Group();
+    group.name = `surface.fallback.${planet.id}`;
+
+    const theme = planet.theme;
+    const lightColor = new THREE.Color(theme.light);
+    const midColor = new THREE.Color(theme.mid);
+    const darkColor = new THREE.Color(theme.dark);
+
+    // Ground: a large soft-tinted disc with a subtle radial gradient so
+    // the horizon fades out rather than ending in a hard edge.
+    const groundGeom = new THREE.CircleGeometry(420, 128);
+    const groundColors = new Float32Array(groundGeom.attributes.position.count * 3);
+    const pos = groundGeom.attributes.position;
+    const nearTint = midColor.clone().lerp(lightColor, 0.25);
+    const farTint = midColor.clone().lerp(darkColor, 0.55);
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const r = Math.min(1, Math.hypot(x, y) / 420);
+      const jitter = 1 - Math.random() * 0.08;
+      const c = nearTint.clone().lerp(farTint, r).multiplyScalar(jitter);
+      groundColors[i * 3 + 0] = c.r;
+      groundColors[i * 3 + 1] = c.g;
+      groundColors[i * 3 + 2] = c.b;
+    }
+    groundGeom.setAttribute("color", new THREE.BufferAttribute(groundColors, 3));
+    const groundMat = new THREE.MeshStandardMaterial({
+      vertexColors: true,
+      roughness: 0.88,
+      metalness: 0.05,
+    });
+    const ground = new THREE.Mesh(groundGeom, groundMat);
+    ground.rotation.x = -Math.PI / 2;
+    ground.position.y = -0.02;
+    ground.receiveShadow = false;
+    group.add(ground);
+
+    // Scattered boulders — deterministic placement per-planet so repeat
+    // visits look the same.
+    const rng = mulberry32(hashString(planet.id));
+    const rockMat = new THREE.MeshStandardMaterial({
+      color: midColor.clone().multiplyScalar(0.85),
+      roughness: 0.95,
+      metalness: 0.03,
+    });
+    const rockGeom = new THREE.IcosahedronGeometry(1, 1);
+    const rocks = new THREE.InstancedMesh(rockGeom, rockMat, 48);
+    const rockMatrix = new THREE.Matrix4();
+    const rockPos = new THREE.Vector3();
+    const rockQuat = new THREE.Quaternion();
+    const rockScale = new THREE.Vector3();
+    for (let i = 0; i < rocks.count; i++) {
+      // Spread rocks in a ring between 14 and 120 units so the spawn area
+      // near the rocket pad stays clear.
+      const a = rng() * Math.PI * 2;
+      const radius = 14 + rng() * 106;
+      rockPos.set(Math.cos(a) * radius, -0.25 + rng() * 0.35, Math.sin(a) * radius);
+      rockQuat.setFromEuler(
+        new THREE.Euler(rng() * 0.6, rng() * Math.PI * 2, rng() * 0.6),
+      );
+      const s = 0.4 + rng() * 1.6;
+      rockScale.set(s, 0.65 * s, s);
+      rockMatrix.compose(rockPos, rockQuat, rockScale);
+      rocks.setMatrixAt(i, rockMatrix);
+    }
+    rocks.instanceMatrix.needsUpdate = true;
+    group.add(rocks);
+
+    // Sky: a large starfield dome tinted by the planet's glow colour so
+    // Europa reads icy-blue, Mars reads salmon, Titan reads amber, etc.
+    const stars = createStarfield({ count: 1800, radius: 520, size: 1.4 });
+    const starMat = stars.material as THREE.PointsMaterial;
+    starMat.color = lightColor.clone().lerp(new THREE.Color(0xffffff), 0.4);
+    group.add(stars);
+
+    // Subtle sky dome so it doesn't read as pure black — uses the
+    // planet's `dark` theme colour on the inside of a large back-faced
+    // sphere.
+    const domeMat = new THREE.MeshBasicMaterial({
+      color: darkColor,
+      side: THREE.BackSide,
+      depthWrite: false,
+    });
+    const dome = new THREE.Mesh(new THREE.SphereGeometry(500, 32, 16), domeMat);
+    dome.position.y = 0;
+    group.add(dome);
+
+    this.scene.add(group);
+    this.fallbackGroup = group;
+  }
+
+  private clearFallbackSurface(): void {
+    if (!this.fallbackGroup) return;
+    this.scene.remove(this.fallbackGroup);
+    this.fallbackGroup.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      mesh.geometry?.dispose?.();
+      const material = mesh.material as THREE.Material | THREE.Material[] | undefined;
+      if (Array.isArray(material)) {
+        material.forEach((mat) => mat.dispose());
+      } else {
+        material?.dispose?.();
+      }
+    });
+    this.fallbackGroup = null;
   }
 
   private buildLandedRocketSite(): void {

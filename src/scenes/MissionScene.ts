@@ -31,6 +31,7 @@ import {
   Tween,
 } from "../util/feel";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
+import { isMockSplatUrl } from "../data/assetUrls";
 
 /**
  * Continuous mission scene — one playable flight from Earth pad through
@@ -1299,6 +1300,12 @@ export class MissionScene implements SceneSlot {
 
   private beginTouchdown(): void {
     if (!this.spark || !this.currentPlanet) return;
+    // Skip the Spark public sample splats seeded by `npm run worlds:mock`
+    // (e.g. the butterfly). Showing a random demo splat during the descent
+    // beats nothing but completely breaks immersion; the destination orb +
+    // atmosphere already sell the touchdown on their own until a real
+    // Marble world is generated.
+    if (isMockSplatUrl(this.currentPlanet.splatUrl)) return;
     void this.loadSurfaceSplat(
       this.currentPlanet.splatUrl,
       ++this.surfaceSplatLoadId,

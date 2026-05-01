@@ -5,16 +5,8 @@ import { SplatMesh, type SparkRenderer } from "@sparkjsdev/spark";
 import type { SceneSlot } from "./Scene";
 import { createStarfield } from "../util/starfield";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
-import { ARTEMIS_ROCKET_GLB_URL } from "../data/assetUrls";
+import { ARTEMIS_ROCKET_GLB_URL, isMockSplatUrl } from "../data/assetUrls";
 import { BACKDROPS } from "../data/backdrops";
-
-/**
- * URL prefix for the Spark public mock splats. We refuse to load these in the
- * hangar to avoid showing a butterfly behind the rocket; the procedural
- * starfield + lighted pad takes over until a real Marble backdrop is
- * generated via `npm run backdrops:generate`.
- */
-const MOCK_SPLAT_PREFIX = "https://sparkjs.dev/";
 
 export class HangarScene implements SceneSlot {
   readonly scene = new THREE.Scene();
@@ -177,7 +169,7 @@ export class HangarScene implements SceneSlot {
     if (!this.spark || this.backdropSplat) return;
     const backdrop = BACKDROPS.find((b) => b.id === "hangarBay");
     if (!backdrop?.splatUrl) return;
-    if (backdrop.splatUrl.startsWith(MOCK_SPLAT_PREFIX)) return;
+    if (isMockSplatUrl(backdrop.splatUrl)) return;
     try {
       const splat = new SplatMesh({ url: backdrop.splatUrl });
       splat.quaternion.set(1, 0, 0, 0);
