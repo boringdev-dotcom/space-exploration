@@ -204,6 +204,8 @@ export class CockpitRig {
   private boostFovTween: Tween | null = null;
   /** Filtered yaw rate (-1..1) used for chase-camera roll-into-yaw bank. */
   private yawRateForBank = 0;
+  /** Host-driven exterior follow tightness. Landing uses a tighter camera. */
+  private exteriorFollowTightness = 0;
 
   /** Damped chase/external camera follower (B2 — camera lag). */
   private readonly _chaseFollowEye = new THREE.Vector3();
@@ -392,6 +394,14 @@ export class CockpitRig {
     const clamped = Math.max(-1, Math.min(1, yawRate));
     // Mild low-pass (lambda 4) so the bank doesn't twitch on key-bumps.
     this.yawRateForBank = damp(this.yawRateForBank, clamped, 4, 1 / 60);
+  }
+
+  /**
+   * 0 = cinematic trailing camera, 1 = tight follow. Mission landing raises
+   * this so the scripted hover-down does not leave the camera swinging behind.
+   */
+  setExteriorFollowTightness(value: number): void {
+    this.exteriorFollowTightness = clamp(value, 0, 1);
   }
 
   /**
@@ -642,8 +652,9 @@ export class CockpitRig {
         // Position is slightly springier than look so the camera trails
         // during turns then catches up; look damps faster so the lens
         // always centres the rocket.
-        dampVec3(this._chaseFollowEye, rawEye, 7, dt);
-        dampVec3(this._chaseFollowLook, rawLook, 11, dt);
+        const tight = this.exteriorFollowTightness;
+        dampVec3(this._chaseFollowEye, rawEye, 7 + tight * 18, dt);
+        dampVec3(this._chaseFollowLook, rawLook, 11 + tight * 24, dt);
       }
       // Blend the followed pose proportionally to exterior weight.
       rawEye.lerp(this._chaseFollowEye, exteriorWeight);

@@ -147,7 +147,7 @@ export class SceneManager {
       },
       onTouchdown: ({ spawnPose }) => {
         this.surface.setSpawnPose?.(spawnPose);
-        this.setState("surface");
+        this.beginLandingSurfaceTransition();
       },
       onControlModeChange: (next) => {
         this.controlModeListeners.forEach((cb) => cb(next));
@@ -412,6 +412,22 @@ export class SceneManager {
     this.flashEl.classList.add("is-flashing");
   }
 
+  private beginLandingSurfaceTransition(): void {
+    if (!this.flashEl) {
+      this.setState("surface");
+      return;
+    }
+    this.flashEl.classList.remove("is-flashing", "is-landing-handoff");
+    void this.flashEl.offsetWidth;
+    this.flashEl.classList.add("is-landing-handoff");
+    window.setTimeout(() => {
+      this.setState("surface");
+    }, 620);
+    window.setTimeout(() => {
+      this.flashEl?.classList.remove("is-landing-handoff");
+    }, 1850);
+  }
+
   /* ============================================================
    * HUD wiring
    * ============================================================ */
@@ -519,6 +535,7 @@ export class SceneManager {
         getTarget: () => this.selectedPlanet,
         getStatus: () => this.surface.status,
         getProgress: () => this.surface.progress,
+        getEntryRevealProgress: () => this.surface.getEntryRevealProgress(),
         getRocketInteraction: () => this.surface.getRocketInteraction(),
         onLockRequest: () => this.surface.requestPointerLock(),
         onPointerLockState: (cb) => this.surface.onLockChange(cb),
@@ -620,24 +637,24 @@ export class SceneManager {
       // change; proximity here is just a subtle accent.
       const targetBloomMul =
         1 +
-        this.lastInput.boost * 0.18 +
-        phaseBias * 0.4 +
-        speedNorm * 0.08 +
-        proximity * 0.10;
+        this.lastInput.boost * 0.16 +
+        phaseBias * 0.35 +
+        speedNorm * 0.12 +
+        proximity * 0.16;
       this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
       const targetGrain =
-        0.035 + this.lastInput.boost * 0.015 + proximity * 0.008;
+        0.028 + this.lastInput.boost * 0.012 + proximity * 0.012;
       this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
       // Bloom radius gentle — wide blooms read as wash. Keep it tight.
       const targetRadiusMul =
-        1 + this.lastInput.boost * 0.18 + proximity * 0.10 + speedNorm * 0.08;
+        1 + this.lastInput.boost * 0.14 + proximity * 0.16 + speedNorm * 0.10;
       this.bloomRadiusBias = damp(
         this.bloomRadiusBias,
         targetRadiusMul,
         5,
         delta,
       );
-      const targetVignette = 0.5 - proximity * 0.10 + this.lastInput.boost * 0.05;
+      const targetVignette = 0.42 - proximity * 0.06 + this.lastInput.boost * 0.04;
       this.vignetteBias = damp(this.vignetteBias, targetVignette, 5, delta);
       this.post.setBias({
         bloomMul: this.bloomBias,

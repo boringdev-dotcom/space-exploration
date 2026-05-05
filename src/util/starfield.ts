@@ -9,7 +9,7 @@ export interface StarfieldOptions {
 
 /** Builds a `THREE.Points` cloud of distant stars on a sphere. */
 export function createStarfield(opts: StarfieldOptions = {}): THREE.Points {
-  const { count = 4000, radius = 800, size = 1.6 } = opts;
+  const { count = 4000, radius = 800, size = 1.6, twinkle = false } = opts;
 
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
@@ -26,7 +26,10 @@ export function createStarfield(opts: StarfieldOptions = {}): THREE.Points {
     positions[i * 3 + 1] = r * Math.cos(phi);
     positions[i * 3 + 2] = r * Math.sin(phi) * Math.sin(theta);
 
-    const tint = 0.7 + Math.random() * 0.3;
+    const magnitude = twinkle
+      ? Math.pow(Math.random(), 1.8) * 0.55 + 0.45
+      : 0.7 + Math.random() * 0.3;
+    const tint = magnitude;
     const blueShift = Math.random() < 0.15 ? 1.15 : 1;
     colors[i * 3 + 0] = tint;
     colors[i * 3 + 1] = tint;

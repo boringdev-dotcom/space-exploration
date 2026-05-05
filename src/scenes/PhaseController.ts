@@ -30,8 +30,8 @@ export interface PhaseFeel {
 const FEEL_BY_PHASE: Record<MissionPhase, PhaseFeel> = {
   liftoff: { throttleCeiling: 2, boostAllowed: false, bloomBias: 0.10, shakeScale: 1.0 },
   cruise: { throttleCeiling: 2, boostAllowed: true, bloomBias: 0, shakeScale: 1.0 },
-  approach: { throttleCeiling: 1.0, boostAllowed: false, bloomBias: 0.05, shakeScale: 0.7 },
-  touchdown: { throttleCeiling: 0.4, boostAllowed: false, bloomBias: 0.02, shakeScale: 0.4 },
+  approach: { throttleCeiling: 1.0, boostAllowed: false, bloomBias: 0.08, shakeScale: 0.55 },
+  touchdown: { throttleCeiling: 0.4, boostAllowed: false, bloomBias: 0.06, shakeScale: 0.18 },
   landed: { throttleCeiling: 0, boostAllowed: false, bloomBias: 0, shakeScale: 0 },
 };
 
