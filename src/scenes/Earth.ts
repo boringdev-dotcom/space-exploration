@@ -79,9 +79,14 @@ const VERT = /* glsl */ `
 const ATMOSPHERE_FRAG = /* glsl */ `
   varying vec3 vNormal;
   uniform vec3 uColor;
+  uniform vec3 uSunDir;
   uniform float uOpacity;
   void main() {
-    float i = pow(0.62 - dot(vNormal, vec3(0,0,1)), 2.4);
+    vec3 N = normalize(vNormal);
+    float fresnel = pow(1.0 - abs(N.z), 2.15);
+    float sunWrap = smoothstep(-0.35, 0.85, dot(N, normalize(uSunDir)));
+    float terminator = smoothstep(-0.15, 0.35, dot(N, normalize(uSunDir)));
+    float i = fresnel * (0.35 + sunWrap * 0.95) + terminator * 0.045;
     gl_FragColor = vec4(uColor, 1.0) * i * uOpacity;
   }
 `;
@@ -135,6 +140,7 @@ export function createEarth(): Earth {
     side: THREE.BackSide,
     uniforms: {
       uColor: { value: new THREE.Color(0x6cc7ff) },
+      uSunDir: { value: new THREE.Vector3(1, 0.3, 0.5).normalize() },
       uOpacity: { value: 0 },
     },
     vertexShader: VERT,
@@ -186,6 +192,9 @@ export function createEarth(): Earth {
 
   const setSunDirection = (dir: THREE.Vector3) => {
     cloudUniforms.uSunDir.value.copy(dir).normalize();
+    (atmosphereMat.uniforms.uSunDir as { value: THREE.Vector3 }).value
+      .copy(dir)
+      .normalize();
   };
 
   const setCameraDistance = (distance: number) => {

@@ -225,7 +225,7 @@ export function createEnginePlume(opts: {
     // Core flicker — cheap sin-noise, scaled by throttle. Dialed down
     // ~70% so the chase camera doesn't blow out at full throttle.
     const flicker = 0.85 + Math.random() * 0.15;
-    coreMat.opacity = (0.16 + tNorm * 0.16) * flicker;
+    coreMat.opacity = (0.14 + tNorm * 0.14 + boost * 0.08) * flicker;
     core.scale.set(
       0.92 + Math.random() * 0.08,
       easeOutCubic(0.4 + tNorm * 0.6) * (1 + boost * 0.4),
@@ -233,12 +233,15 @@ export function createEnginePlume(opts: {
     );
 
     // Haze pulses softly with throttle and grows on boost. Reduced ~70%.
-    hazeMat.uniforms.uIntensity.value = 0.1 + tNorm * 0.12 + boost * 0.14;
-    const hazeScale = 0.85 + tNorm * 0.5 + boost * 0.45;
+    hazeMat.uniforms.uIntensity.value =
+      0.08 + tNorm * 0.10 + boost * 0.16 + speedNorm * 0.06;
+    const hazeScale = 0.85 + tNorm * 0.45 + boost * 0.5 + speedNorm * 0.3;
     haze.scale.setScalar(hazeScale);
 
     // Particle stream — emit and propagate.
-    const emitCount = Math.floor((20 + boost * 40) * deltaSec * 60);
+    pMat.opacity = 0.22 + speedNorm * 0.22 + boost * 0.16;
+    pMat.size = 0.14 + speedNorm * 0.12 + boost * 0.06;
+    const emitCount = Math.floor((20 + boost * 40 + speedNorm * 26) * deltaSec * 60);
     let emitted = 0;
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       lives[i] -= deltaSec;
@@ -250,7 +253,7 @@ export function createEnginePlume(opts: {
         lives[i] = 0.7 + Math.random() * 1.1;
         emitted++;
       } else if (lives[i] > 0) {
-        const fall = (1.6 + boost * 1.4 + tNorm * 1.2) * deltaSec;
+        const fall = (1.6 + boost * 1.4 + tNorm * 1.2 + speedNorm * 1.8) * deltaSec;
         positions[o + 1] -= fall;
         positions[o] += (seeds[i] - 0.5) * 0.04 * deltaSec;
         positions[o + 2] += (Math.random() - 0.5) * 0.04 * deltaSec;

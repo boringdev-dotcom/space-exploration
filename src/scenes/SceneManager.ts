@@ -228,17 +228,20 @@ export class SceneManager {
    */
   private readonly onGlobalKey = (e: KeyboardEvent): void => {
     if (e.code === "KeyC" && !e.repeat) {
-      if (this.state === "mission") {
-        this.mission.toggleView();
-        const mode = this.mission.viewMode;
-        // Sync FlightInput so head-look limits + release behaviour
-        // match the new view (cockpit recentres, chase/external hold).
-        this.flightInput.setViewMode(mode);
-        playCue("viewToggle");
-        this.viewToggleListeners.forEach((cb) => cb(mode));
-      }
+      this.cycleFlightView();
     }
   };
+
+  private cycleFlightView(): void {
+    if (this.state !== "mission") return;
+    this.mission.toggleView();
+    const mode = this.mission.viewMode;
+    // Sync FlightInput so head-look limits + release behaviour match the
+    // new view (cockpit recentres, chase/external hold).
+    this.flightInput.setViewMode(mode);
+    playCue("viewToggle");
+    this.viewToggleListeners.forEach((cb) => cb(mode));
+  }
 
   /** HUD subscribes here to update the view-mode badge. */
   onViewToggle(cb: (mode: "cockpit" | "chase" | "external") => void): () => void {
@@ -478,6 +481,7 @@ export class SceneManager {
         getTarget: () => this.selectedPlanet,
         onFlightInput: (cb) => this.onFlightInput(cb),
         onViewToggle: (cb) => this.onViewToggle(cb),
+        onCycleView: () => this.cycleFlightView(),
         getViewMode: () => this.getFlightViewMode(),
         onLockRequest: () => this.requestFlightPointerLock(),
         onSkipToLanding: () => {
@@ -661,6 +665,10 @@ export class SceneManager {
         grain: this.grainBias,
         bloomRadiusMul: this.bloomRadiusBias,
         vignette: this.vignetteBias,
+        chromatic: 0.08 + speedNorm * 0.18 + this.lastInput.boost * 0.20,
+        radialBlur: speedNorm * 0.24 + this.lastInput.boost * 0.28,
+        warmth: proximity * 0.22,
+        lensDirt: 0.025 + proximity * 0.035 + this.lastInput.boost * 0.025,
       });
       setDroneFlightState(this.lastInput.throttle, this.lastInput.boost);
 
