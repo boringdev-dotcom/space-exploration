@@ -1737,6 +1737,25 @@
   height: 100%;
 }
 
+#screen-flight.is-landing .control-mode-pill,
+#screen-flight.is-landing .hud-toggle-stack,
+#screen-flight.is-landing .skip-pill,
+#screen-flight.is-landing .pfd {
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(8px);
+  transition:
+    opacity 360ms ease,
+    transform 360ms ease;
+}
+
+#screen-flight.is-landing .flight-readout,
+#screen-flight.is-landing .phase-strip,
+#screen-flight.is-landing .view-mode-pill {
+  opacity: 0.62;
+  transition: opacity 360ms ease;
+}
+
 .flight-left {
   grid-column: 1;
   grid-row: 1;
@@ -2173,6 +2192,23 @@
   pointer-events: none;
 }
 
+#screen-surface::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    linear-gradient(90deg, rgba(0, 0, 0, 0.78), transparent 24%, transparent 76%, rgba(0, 0, 0, 0.78)),
+    radial-gradient(ellipse at center, transparent 34%, rgba(0, 0, 0, 0.52) 100%);
+  opacity: 0;
+  transition: opacity 900ms ease;
+}
+
+#screen-surface.is-entering::before {
+  opacity: 1;
+}
+
 #screen-surface .surface-top {
   position: absolute;
   top: calc(var(--top-bar-h) + var(--hud-padding));
@@ -2562,11 +2598,33 @@
   animation: flashFade 700ms ease-out forwards;
 }
 
+#flash.is-landing-handoff {
+  background:
+    radial-gradient(ellipse at center, rgba(255, 178, 135, 0.18) 0%, rgba(0, 0, 0, 0.76) 58%, #000 100%),
+    linear-gradient(180deg, rgba(76, 214, 255, 0.10), rgba(255, 133, 76, 0.16));
+  animation: landingHandoffFade 1850ms cubic-bezier(0.2, 0.7, 0.1, 1) forwards;
+}
+
 @keyframes flashFade {
   0% {
     opacity: 0;
   }
   18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes landingHandoffFade {
+  0% {
+    opacity: 0;
+  }
+  28% {
+    opacity: 1;
+  }
+  56% {
     opacity: 1;
   }
   100% {

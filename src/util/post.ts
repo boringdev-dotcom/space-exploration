@@ -87,9 +87,9 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
   const halfH = Math.max(2, Math.round(window.innerHeight * 0.5));
   const bloom = new UnrealBloomPass(
     new THREE.Vector2(halfW, halfH),
-    0.18,  // strength (was 0.85)
-    0.55,  // radius
-    0.78,  // threshold (was 0.4) — only strongly-lit pixels bloom
+    0.20,  // strength (was 0.85)
+    0.58,  // radius
+    0.74,  // threshold (was 0.4) — only strongly-lit pixels bloom
   );
   composer.addPass(bloom);
 
@@ -111,33 +111,33 @@ export function createPostFx(renderer: THREE.WebGLRenderer): PostFx {
   let elapsed = 0;
   // Base values dimmed ~80% from the original cinematic levels so the
   // rocket reads as a solid object instead of a smear of light.
-  let baseBloomStrength = 0.18;
-  let baseBloomRadius = 0.55;
-  let baseGrain = 0.04;
-  let baseVignette = 0.5;
+  let baseBloomStrength = 0.20;
+  let baseBloomRadius = 0.58;
+  let baseGrain = 0.03;
+  let baseVignette = 0.42;
   let bloomMul = 1;
   let bloomRadiusMul = 1;
 
   const applyBase = (level: "default" | "warp" | "calm") => {
     switch (level) {
       case "warp":
-        baseBloomStrength = 0.26;
-        baseBloomRadius = 0.65;
-        baseGrain = 0.045;
-        baseVignette = 0.5;
+        baseBloomStrength = 0.28;
+        baseBloomRadius = 0.68;
+        baseGrain = 0.035;
+        baseVignette = 0.44;
         break;
       case "calm":
-        baseBloomStrength = 0.12;
-        baseBloomRadius = 0.45;
-        baseGrain = 0.03;
-        baseVignette = 0.4;
+        baseBloomStrength = 0.14;
+        baseBloomRadius = 0.48;
+        baseGrain = 0.026;
+        baseVignette = 0.36;
         break;
       case "default":
       default:
-        baseBloomStrength = 0.18;
-        baseBloomRadius = 0.55;
-        baseGrain = 0.04;
-        baseVignette = 0.5;
+        baseBloomStrength = 0.20;
+        baseBloomRadius = 0.58;
+        baseGrain = 0.03;
+        baseVignette = 0.42;
         break;
     }
     bloom.strength = baseBloomStrength * bloomMul;

@@ -33,10 +33,11 @@ export interface SurfaceRocketInteractionSnapshot {
   currentPlanetId: string | null;
 }
 
-const ROCKET_LANDING_POSITION = new THREE.Vector3(5.6, 0, -9.2);
+const ROCKET_LANDING_POSITION = new THREE.Vector3(4.2, 0, -9.6);
 const ROCKET_BOARD_RANGE = 12;
 const ROCKET_HINT_RANGE = 12;
 const ROCKET_TARGET_DIAMETER = 5.25;
+const ENTRY_REVEAL_SEC = 1.6;
 
 /** Tiny deterministic PRNG so each planet's procedural rockfield is stable. */
 function mulberry32(seed: number): () => number {
@@ -150,6 +151,7 @@ export class SurfaceScene implements SceneSlot {
   private rocketGlow = 0;
   private currentPlanetId: string | null = null;
   private readonly beaconLights: THREE.PointLight[] = [];
+  private entryRevealElapsed = ENTRY_REVEAL_SEC;
 
   constructor(spark: SparkRenderer, canvas: HTMLCanvasElement) {
     this.spark = spark;
@@ -224,6 +226,7 @@ export class SurfaceScene implements SceneSlot {
     this.cancelBoarding();
     this.resetMovement();
     this.resetRocketState();
+    this.entryRevealElapsed = 0;
     void this.loadRocketForSurface(++this.rocketLoadId);
 
     if (this.splat) {
@@ -301,6 +304,10 @@ export class SurfaceScene implements SceneSlot {
 
   update(delta: number, _elapsed: number): void {
     this.updateRocketInteraction(delta, _elapsed);
+    this.entryRevealElapsed = Math.min(
+      ENTRY_REVEAL_SEC,
+      this.entryRevealElapsed + delta,
+    );
 
     // Lerp factor based on `velocityXZSmoothing * accelerationTimeGrounded`.
     // The exponent 0.116 is what the reference controller uses to make the
@@ -399,6 +406,9 @@ export class SurfaceScene implements SceneSlot {
   }
   get isLocked(): boolean {
     return this.controls.isLocked;
+  }
+  getEntryRevealProgress(): number {
+    return Math.min(1, this.entryRevealElapsed / ENTRY_REVEAL_SEC);
   }
 
   getRocketInteraction(): SurfaceRocketInteractionSnapshot {

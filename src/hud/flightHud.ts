@@ -491,6 +491,12 @@ export function mountFlightHud(args: Args): () => void {
 
   // --- Phase strip wiring ---
   function applyPhase(phase: MissionPhaseLabel): void {
+    const landing = phase === "touchdown" || phase === "landed";
+    screen?.classList.toggle("is-landing", landing);
+    if (landing) {
+      setHelpVisible(false);
+      setEngageVisible(false);
+    }
     if (!phaseStrip || phaseChips.length === 0) return;
     phaseStrip.dataset.phase = phase;
     const activeIdx =

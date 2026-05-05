@@ -53,6 +53,7 @@ const DESTINATION_RADIUS = 18; // units; planet GLBs rescaled to this diameter *
 const SHIP_PAD_OFFSET = 4;
 const APPROACH_RANGE = 200; // distance to dest centre that flips to "approach"
 const TOUCHDOWN_RANGE = 8; // altitude above dest surface that flips to "touchdown"
+const LANDING_BRIDGE_SEC = 2.4;
 
 // Roll-stabilization references for the autopilot's look-at attitude.
 const _missionWorldUp = new THREE.Vector3(0, 1, 0);
@@ -158,6 +159,8 @@ export class MissionScene implements SceneSlot {
 
   private destinationGroup = new THREE.Group();
   private destinationMesh: THREE.Mesh;
+  private destinationAtmosphere: THREE.Mesh;
+  private destinationAtmosphereMat: THREE.MeshBasicMaterial;
   private destinationModel: THREE.Group | null = null;
   private destinationModelLoadId = 0;
   private surfaceSplat: SplatMesh | null = null;
@@ -225,6 +228,7 @@ export class MissionScene implements SceneSlot {
   private touchdownTween: Tween | null = null;
   private touchdownFiredHandoff = false;
   private touchdownHandoffToken = 0;
+  private landingBridgeElapsed = 0;
 
   // Reusable scratch.
   private readonly _scratchVec = new THREE.Vector3();
@@ -279,20 +283,21 @@ export class MissionScene implements SceneSlot {
 
     // Distant starfield. Static at the far horizon; rotates very slowly.
     this.starfield = createStarfield({
-      count: 8000,
+      count: 10000,
       radius: 9500,
-      size: 4.5,
+      size: 3.8,
+      twinkle: true,
     });
     this.scene.add(this.starfield);
 
     // Streaming space dust — close-range particles that sweep past the
     // cockpit window so the player visually feels the ship moving even
-    // when the destination is still small ahead. Cheap; ~600 particles.
+    // when the destination is still small ahead. Cheap; ~900 particles.
     this.spaceDust = createSpaceDust({
-      count: 600,
-      radius: 6,
-      length: 120,
-      size: 0.06,
+      count: 900,
+      radius: 7,
+      length: 170,
+      size: 0.045,
     });
     this.scene.add(this.spaceDust.points);
 
@@ -309,6 +314,20 @@ export class MissionScene implements SceneSlot {
     this.destinationMesh = new THREE.Mesh(destGeom, destMat);
     this.destinationMesh.position.set(0, 0, -DESTINATION_DISTANCE);
     this.destinationGroup.add(this.destinationMesh);
+    this.destinationAtmosphereMat = new THREE.MeshBasicMaterial({
+      color: 0x6cc7ff,
+      transparent: true,
+      opacity: 0.10,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+      side: THREE.BackSide,
+    });
+    this.destinationAtmosphere = new THREE.Mesh(
+      new THREE.SphereGeometry(DESTINATION_RADIUS * 1.18, 64, 64),
+      this.destinationAtmosphereMat,
+    );
+    this.destinationAtmosphere.position.copy(this.destinationMesh.position);
+    this.destinationGroup.add(this.destinationAtmosphere);
     this.destinationGroup.add(this.surfaceSplatGroup);
     this.surfaceSplatGroup.position.copy(this.destinationMesh.position);
     this.scene.add(this.destinationGroup);
@@ -395,6 +414,7 @@ export class MissionScene implements SceneSlot {
     this.touchdownFiredHandoff = false;
     this.touchdownHandoffToken += 1;
     this.touchdownTween = null;
+    this.landingBridgeElapsed = 0;
     this.surfaceFade = 0;
     // Mission starts in MANUAL: the player flies the rocket from Earth
     // themselves. Engines are off, ship is parked on the pad pointed up.
@@ -416,6 +436,8 @@ export class MissionScene implements SceneSlot {
     const placeholderMat = this.destinationMesh.material as THREE.MeshStandardMaterial;
     placeholderMat.color = new THREE.Color(planet.theme.mid);
     placeholderMat.emissive = new THREE.Color(planet.theme.dark);
+    this.destinationAtmosphereMat.color = new THREE.Color(planet.theme.light);
+    this.destinationAtmosphereMat.opacity = 0.08;
 
     // Reset ship to launch pad pose.
     const padPos = new THREE.Vector3(0, EARTH_RADIUS + SHIP_PAD_OFFSET, 0);
@@ -482,12 +504,10 @@ export class MissionScene implements SceneSlot {
     this.beginTouchdown();
 
     // Drop straight through touchdown into the landed phase for HUD/audio
-    // consistency, then fire the surface handoff synchronously. Skip is a
-    // user-facing convenience action, so it must never depend on a render-loop
-    // tween or timer that can be delayed while splats/GLBs are streaming.
+    // consistency, then let the same landing bridge run. This keeps the
+    // debug shortcut visually identical to a normal final descent.
     this.phaseController.forcePhase("touchdown");
     this.phaseController.forcePhase("landed");
-    this.forceSurfaceHandoffForDebug();
   }
 
   /**
@@ -534,10 +554,8 @@ export class MissionScene implements SceneSlot {
   }
 
   /**
-   * Atmospheric proximity factor (0..1) — climbs as the ship approaches
-   * either Earth or the destination surface. Used by the post-fx
-   * pipeline to push bloom + vignette during atmospheric entry, selling
-   * the "burning into atmosphere" feel without a custom shader.
+   * Atmospheric proximity factor (0..1). The active body is phase-aware so
+   * Earth proximity cannot leak into destination approach grading.
    */
   getAtmosphericProximity(): number {
     const ship = this.dynamics.ship;
@@ -551,7 +569,12 @@ export class MissionScene implements SceneSlot {
       const t = 1 - alt / 30;
       return t * t * (3 - 2 * t); // smoothstep
     };
-    return Math.max(factor(altE), factor(altD));
+    const phase = this.phaseController.phase;
+    if (phase === "liftoff") return factor(altE);
+    if (phase === "approach" || phase === "touchdown" || phase === "landed") {
+      return factor(altD);
+    }
+    return Math.max(factor(altE) * 0.35, factor(altD) * 0.35);
   }
 
   /** Set the control mode explicitly. Idempotent; emits onControlModeChange. */
@@ -672,6 +695,7 @@ export class MissionScene implements SceneSlot {
 
     // Surface splat fade-in / out follows phase.
     this.updateSurfaceFade(deltaSec);
+    this.updateDestinationAtmosphere(deltaSec);
 
     // Camera shake amplitude per phase (pre-cached `feel` to avoid double
     // call). Inside the cockpit (camera = pilot's head) we kill shake
@@ -729,8 +753,10 @@ export class MissionScene implements SceneSlot {
     const dyn = this.dynamics;
     const speed = dyn.ship.velocity.length();
     const speedNorm = clamp01(speed / 60);
+    const landingPhase = phase === "touchdown" || phase === "landed";
     this.rig.setThrottle(this.autopilotThrottle, this.input.boost, speedNorm);
-    this.rig.setSpeedFovBias(speedNorm * 4);
+    this.rig.setSpeedFovBias(speedNorm * (landingPhase ? 1.5 : 4));
+    this.rig.setExteriorFollowTightness(landingPhase ? 1 : 0);
 
     // Cockpit "agility" signal — ramps up while the player is actively
     // pitching/yawing/rolling, drops back to 0 when at rest. Used by
@@ -771,6 +797,7 @@ export class MissionScene implements SceneSlot {
 
     // Drive the rig (camera composition + view-mode dolly).
     this.rig.update(deltaSec, elapsedSec);
+    this.protectCameraFromDestinationSurface();
 
     // Camera altitude floor: at the launch pad the ship's nose points up, so
     // "behind the ship" (the chase / external default offset) ends up
@@ -856,9 +883,13 @@ export class MissionScene implements SceneSlot {
       Math.atan2(dirLocal.y, Math.max(1e-6, horiz)),
     );
 
-    // Vertical speed: project velocity onto Earth-radial (which is the
-    // ship.position direction at our scale, since Earth sits at origin).
-    const radial = _scratchRadialN.copy(ship.position);
+    // Vertical speed: use destination-radial once the HUD switches to
+    // destination AGL so the VSI matches the body we are landing on.
+    const phase = this.phaseController.phase;
+    const radial =
+      phase === "approach" || phase === "touchdown" || phase === "landed"
+        ? _scratchRadialN.copy(ship.position).sub(dest)
+        : _scratchRadialN.copy(ship.position);
     const radialLen = radial.length();
     let verticalSpeedKmS = 0;
     if (radialLen > 1e-6) {
@@ -1299,6 +1330,11 @@ export class MissionScene implements SceneSlot {
   }
 
   private beginTouchdown(): void {
+    this.landingBridgeElapsed = 0;
+    this.rig.followShip(this.dynamics.ship);
+    this.rig.setView("external");
+    this.rig.dropExternalAnchor(8.5, 3.2);
+
     if (!this.spark || !this.currentPlanet) return;
     // Skip the Spark public sample splats seeded by `npm run worlds:mock`
     // (e.g. the butterfly). Showing a random demo splat during the descent
@@ -1320,6 +1356,7 @@ export class MissionScene implements SceneSlot {
       const splat = new SplatMesh({ url });
       splat.quaternion.set(1, 0, 0, 0); // OpenCV→OpenGL Y-flip
       splat.position.set(0, 0, 0);
+      splat.opacity = 0;
       // Splat is added to a group anchored at the destination's centre. The
       // group's "up" vector is the radial direction pointing from dest to
       // the camera; we orient at fade-in time.
@@ -1351,10 +1388,25 @@ export class MissionScene implements SceneSlot {
       this.phaseController.phase === "landed"
       ? 1
       : 0;
-    this.surfaceFade = damp(this.surfaceFade, target, 1.6, dt);
+    this.surfaceFade = damp(this.surfaceFade, target, 0.95, dt);
     if (this.surfaceSplat) {
       this.surfaceSplat.opacity = this.surfaceFade;
     }
+  }
+
+  private updateDestinationAtmosphere(dt: number): void {
+    const range = this.phaseController.rangeToDestination(this.dynamics.ship);
+    const approachT = 1 - clamp01((range - 80) / (APPROACH_RANGE - 80));
+    const proximity = this.getAtmosphericProximity();
+    const targetOpacity = 0.08 + approachT * 0.12 + proximity * 0.10;
+    this.destinationAtmosphereMat.opacity = damp(
+      this.destinationAtmosphereMat.opacity,
+      targetOpacity,
+      2.2,
+      dt,
+    );
+    const scale = 1 + approachT * 0.05 + proximity * 0.08;
+    this.destinationAtmosphere.scale.setScalar(scale);
   }
 
   private beginLandedHandoff(): void {
@@ -1362,14 +1414,45 @@ export class MissionScene implements SceneSlot {
     // Snap velocity to zero so the camera handoff is rock-steady.
     this.dynamics.ship.velocity.set(0, 0, 0);
     this.dynamics.frozen = true;
+    this.rig.followShip(this.dynamics.ship);
+    this.rig.setView("external");
+    this.rig.dropExternalAnchor(9.5, 3.4);
 
-    // Tween covers a brief 1.2s "cabin settle" before the handoff fires.
+    // Hold a brief exterior settle so the surface handoff happens under a
+    // deliberate landing beat, not immediately after the phase flips.
     this.touchdownFiredHandoff = true;
     const token = ++this.touchdownHandoffToken;
-    this.touchdownTween = new Tween(1.2, easeOutCubic, () => {}, () => {
-      this.fireTouchdownHandoff(token);
-    });
+    this.touchdownTween = new Tween(
+      LANDING_BRIDGE_SEC,
+      easeOutCubic,
+      (eased) => {
+        this.landingBridgeElapsed = eased * LANDING_BRIDGE_SEC;
+        this.rig.dropExternalAnchor(9.5 - eased * 1.8, 3.4 - eased * 0.8);
+      },
+      () => {
+        this.landingBridgeElapsed = LANDING_BRIDGE_SEC;
+        this.fireTouchdownHandoff(token);
+      },
+    );
     this.touchdownTween.start();
+  }
+
+  private protectCameraFromDestinationSurface(): void {
+    const phase = this.phaseController.phase;
+    if (phase !== "approach" && phase !== "touchdown" && phase !== "landed") {
+      return;
+    }
+    const dest = this.phaseController.destinationCenter;
+    const minDistance = this.phaseController.destinationRadius + 0.9;
+    const camToDest = this._scratchVec.copy(this.camera.position).sub(dest);
+    const dist = camToDest.length();
+    if (dist >= minDistance) return;
+    if (dist < 1e-5) camToDest.set(0, 1, 0);
+    camToDest.normalize().multiplyScalar(minDistance);
+    this.camera.position.copy(dest).add(camToDest);
+    if (this.rig.viewMode !== "cockpit") {
+      this.camera.lookAt(this.dynamics.ship.position);
+    }
   }
 
   private fireTouchdownHandoff(token: number): void {
@@ -1410,6 +1493,7 @@ export class MissionScene implements SceneSlot {
     ignited: boolean;
     ship: ShipState;
     surfaceFade: number;
+    landingBridgeElapsed: number;
   } {
     return {
       phase: this.phaseController.phase,
@@ -1417,6 +1501,7 @@ export class MissionScene implements SceneSlot {
       ignited: this.ignited,
       ship: this.dynamics.ship,
       surfaceFade: this.surfaceFade,
+      landingBridgeElapsed: this.landingBridgeElapsed,
     };
   }
 }

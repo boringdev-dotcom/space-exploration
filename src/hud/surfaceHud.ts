@@ -9,6 +9,7 @@ interface Args {
   getTarget: () => Planet | null;
   getStatus: () => SurfaceStatus;
   getProgress: () => number;
+  getEntryRevealProgress?: () => number;
   getRocketInteraction: () => SurfaceRocketInteractionSnapshot;
   onLockRequest: () => void;
   onPointerLockState: (cb: (locked: boolean) => void) => void;
@@ -50,7 +51,10 @@ export function mountSurfaceHud(args: Args): () => void {
 
   args.onPointerLockState((locked) => {
     pointerLocked = locked;
-    if (lockPrompt) lockPrompt.classList.toggle("is-hidden", locked || plannerOpen);
+    const revealDone = (args.getEntryRevealProgress?.() ?? 1) >= 0.98;
+    if (lockPrompt) {
+      lockPrompt.classList.toggle("is-hidden", locked || plannerOpen || !revealDone);
+    }
   });
 
   const onShow = (): void => {
@@ -59,7 +63,7 @@ export function mountSurfaceHud(args: Args): () => void {
     if (targetName) targetName.textContent = planet.name.toUpperCase();
     if (flavor) flavor.textContent = planet.flavor;
     if (tempEl) tempEl.textContent = planet.surfaceTemp;
-    if (lockPrompt) lockPrompt.classList.remove("is-hidden");
+    if (lockPrompt) lockPrompt.classList.add("is-hidden");
     closePlanner();
     renderDestinationCards();
     pollStatus();
@@ -73,13 +77,13 @@ export function mountSurfaceHud(args: Args): () => void {
         case "loading": {
           const pct = Math.round(args.getProgress() * 100);
           status.textContent = pct > 0
-            ? `Streaming Surface · ${pct}%`
-            : "Streaming Surface…";
+            ? `Surface Resolving · ${pct}%`
+            : "Surface Resolving…";
           status.classList.add("chip--warn");
           break;
         }
         case "ready":
-          status.textContent = "Lander Touchdown";
+          status.textContent = "Touchdown Complete";
           break;
         case "error":
           status.textContent = "Splat Load Error";
@@ -96,9 +100,16 @@ export function mountSurfaceHud(args: Args): () => void {
   function updateRocketHud(): void {
     const interaction = args.getRocketInteraction();
     const current = args.getTarget();
+    const revealProgress = args.getEntryRevealProgress?.() ?? 1;
+    const revealDone = revealProgress >= 0.98;
     const distanceText = Number.isFinite(interaction.distance)
       ? `${interaction.distance.toFixed(1)} m`
       : "—";
+
+    screen?.classList.toggle("is-entering", revealProgress < 1);
+    if (lockPrompt) {
+      lockPrompt.classList.toggle("is-hidden", pointerLocked || plannerOpen || !revealDone);
+    }
 
     if (rocketDistance) rocketDistance.textContent = distanceText;
     if (rocketRange) {
@@ -124,6 +135,7 @@ export function mountSurfaceHud(args: Args): () => void {
       Boolean(screen?.classList.contains("is-active")) &&
       interaction.hintVisible &&
       pointerLocked &&
+      revealDone &&
       !plannerOpen;
     if (rocketPrompt) {
       rocketPrompt.classList.toggle("is-visible", showPrompt);
