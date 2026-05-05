@@ -47,6 +47,8 @@ interface Args {
   onFlightInput?: (cb: (snap: FlightInputSnapshot) => void) => () => void;
   /** Subscribe to view-mode toggles. Returns unsubscribe fn. */
   onViewToggle?: (cb: (mode: "cockpit" | "chase" | "external") => void) => () => void;
+  /** Player clicked the view tile. */
+  onCycleView?: () => void;
   /** Initial view mode. */
   getViewMode?: () => "cockpit" | "chase" | "external";
   /** Click-to-lock for cockpit mouse-look. */
@@ -536,6 +538,12 @@ export function mountFlightHud(args: Args): () => void {
       applyViewMode(mode);
     }) ?? (() => {});
 
+  const onViewPillClick = (e: MouseEvent): void => {
+    e.stopPropagation();
+    args.onCycleView?.();
+  };
+  viewPill?.addEventListener("click", onViewPillClick);
+
   // First click anywhere on the flight screen → request pointer lock so
   // mouse-look becomes available. Locking is opt-in (browsers may already
   // grant it from the launch button gesture; this is the fallback path).
@@ -646,7 +654,7 @@ export function mountFlightHud(args: Args): () => void {
     }
     if (controlTabHint) {
       controlTabHint.textContent =
-        mode === "manual" ? "[Autopilot]" : "manual";
+        mode === "manual" ? "auto" : "manual";
     }
     if (mode === "manual") {
       setPfdVisible(true);
@@ -716,6 +724,7 @@ export function mountFlightHud(args: Args): () => void {
     screenActiveObserver.disconnect();
     if (engageHideTimer !== null) window.clearTimeout(engageHideTimer);
     screen?.removeEventListener("click", requestLock);
+    viewPill?.removeEventListener("click", onViewPillClick);
     skipBtn?.removeEventListener("click", onSkipClick);
     helpToggleBtn?.removeEventListener("click", onHelpBtnClick);
     pfdToggleBtn?.removeEventListener("click", onPfdBtnClick);

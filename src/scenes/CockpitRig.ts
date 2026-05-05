@@ -41,8 +41,8 @@ const COCKPIT_OFFSET = new THREE.Vector3(0, 0.0, 0.0);
 // it, not a tight over-the-shoulder view. The plume opacity has been
 // dialed down enough that we no longer need the lateral CHASE_SIDE bias
 // to keep the lens clean.
-const CHASE_BACK = 5.5;
-const CHASE_UP_WORLD = 1.6;
+const CHASE_BACK = 7.2;
+const CHASE_UP_WORLD = 1.25;
 const CHASE_SIDE = 0.0;
 const EXTERNAL_ANCHOR_BACK = 6.5;
 const EXTERNAL_ANCHOR_UP_WORLD = 2.4;
@@ -60,8 +60,8 @@ const EXTERNAL_RECENTER_SECONDS = Number.POSITIVE_INFINITY;
  * reads as a slightly telephoto cinematic shot.
  */
 const COCKPIT_FOV = 70;
-const CHASE_FOV = 75;
-const EXTERNAL_FOV = 65;
+const CHASE_FOV = 68;
+const EXTERNAL_FOV = 60;
 
 /** Mouse-wheel zoom range for chase / external. 1.0 = base distance. */
 const ZOOM_MIN = 0.5;
@@ -716,7 +716,7 @@ export class CockpitRig {
       cockpitWeight < 0.05 &&
       Math.abs(this.yawRateForBank) > 0.001
     ) {
-      const bankRad = -this.yawRateForBank * 0.25 * exteriorWeight; // ±0.25 rad ≈ ±14°
+      const bankRad = -this.yawRateForBank * 0.32 * exteriorWeight; // ~18 deg max
       // Camera-local Z is forward; rotateZ rotates around its own forward
       // axis ⇒ visual roll. Note: lookAt above already set the up vector
       // to world Y, so this banking sticks.

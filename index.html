@@ -336,20 +336,7 @@
 
         <!-- =================== IN-FLIGHT NAVIGATION =================== -->
         <section id="screen-flight" class="hud-screen">
-          <!-- Control-mode pill (top-right, above view pill) -->
-          <div class="control-mode-pill" id="flight-control-mode-pill" data-mode="auto">
-            <span class="control-mode-pill__dot" aria-hidden="true"></span>
-            <span class="control-mode-pill__label" id="flight-control-mode-label">AUTOPILOT</span>
-            <span class="control-mode-pill__hint">[ <kbd>TAB</kbd> ] <span id="flight-control-tab-hint">manual</span> · [ <kbd>F</kbd> ] free-fly · [ <kbd>H</kbd> ] help</span>
-          </div>
-
-          <!-- View-mode pill (top-right, under control pill) -->
-          <div class="view-mode-pill" id="flight-view-pill">
-            <span class="view-mode-pill__chip" id="flight-view-mode-label">COCKPIT VIEW</span>
-            <span class="view-mode-pill__hint">[ <kbd>C</kbd> ]</span>
-          </div>
-
-          <!-- Mission phase strip (top-centre, slightly below view pill) -->
+          <!-- Mission phase strip (top-centre) -->
           <div class="phase-strip" id="phase-strip" data-phase="liftoff">
             <span class="phase-strip__chip" data-phase="liftoff">LIFTOFF</span>
             <span class="phase-strip__sep" aria-hidden="true">›</span>
@@ -360,25 +347,49 @@
             <span class="phase-strip__chip" data-phase="touchdown">TOUCHDOWN</span>
           </div>
 
-          <!-- Skip-to-landing pill (bottom-right). Player can short-circuit
-               the cruise + approach and jump straight to touchdown. -->
-          <button class="skip-pill" id="flight-skip-btn" type="button">
-            <span class="material-symbols-outlined skip-pill__icon">flight_land</span>
-            <span class="skip-pill__label">Skip to Landing</span>
-          </button>
+          <!-- Command deck: compact flight actions that stay out of the main sightline. -->
+          <div class="flight-hud-rail" aria-label="Flight command controls">
+            <div class="flight-command-card">
+              <div class="flight-command-card__head">
+                <span>Command Deck</span>
+                <span class="flight-command-card__hint">TAB · F · C</span>
+              </div>
 
-          <!-- HUD toggle pills (bottom-right, stacked above skip pill). -->
-          <div class="hud-toggle-stack">
-            <button class="hud-toggle-btn" id="flight-pfd-toggle" type="button" data-active="false" aria-label="Toggle Primary Flight Display">
-              <span class="material-symbols-outlined">view_in_ar</span>
-              <span class="hud-toggle-btn__label">PFD</span>
-              <span class="hud-toggle-btn__hint">[<kbd>P</kbd>]</span>
-            </button>
-            <button class="hud-toggle-btn" id="flight-help-toggle" type="button" aria-label="Toggle help overlay">
-              <span class="material-symbols-outlined">help</span>
-              <span class="hud-toggle-btn__label">Help</span>
-              <span class="hud-toggle-btn__hint">[<kbd>H</kbd>]</span>
-            </button>
+              <div class="control-mode-pill" id="flight-control-mode-pill" data-mode="auto">
+                <span class="control-mode-pill__dot" aria-hidden="true"></span>
+                <span class="control-mode-pill__label" id="flight-control-mode-label">AUTOPILOT</span>
+                <span class="control-mode-pill__hint">
+                  <kbd>TAB</kbd> <span id="flight-control-tab-hint">manual</span>
+                  <span class="control-mode-pill__sep" aria-hidden="true">·</span>
+                  <kbd>F</kbd> free
+                </span>
+              </div>
+
+              <div class="flight-command-card__quickbar">
+                <button class="view-mode-pill" id="flight-view-pill" type="button" aria-label="Cycle camera view">
+                  <span class="view-mode-pill__chip" id="flight-view-mode-label">COCKPIT VIEW</span>
+                  <span class="view-mode-pill__hint"><kbd>C</kbd></span>
+                </button>
+
+                <div class="hud-toggle-stack">
+                  <button class="hud-toggle-btn" id="flight-pfd-toggle" type="button" data-active="false" aria-label="Toggle Primary Flight Display">
+                    <span class="material-symbols-outlined">view_in_ar</span>
+                    <span class="hud-toggle-btn__label">PFD</span>
+                    <span class="hud-toggle-btn__hint"><kbd>P</kbd></span>
+                  </button>
+                  <button class="hud-toggle-btn" id="flight-help-toggle" type="button" aria-label="Toggle help overlay">
+                    <span class="material-symbols-outlined">help</span>
+                    <span class="hud-toggle-btn__label">Help</span>
+                    <span class="hud-toggle-btn__hint"><kbd>H</kbd></span>
+                  </button>
+                </div>
+              </div>
+
+              <button class="skip-pill" id="flight-skip-btn" type="button">
+                <span class="material-symbols-outlined skip-pill__icon">flight_land</span>
+                <span class="skip-pill__label">Skip to Landing</span>
+              </button>
+            </div>
           </div>
 
           <!-- Minimal flight readout (top-left). -->

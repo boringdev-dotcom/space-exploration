@@ -18,8 +18,10 @@ import {
   EARTH_RADIUS,
   type Earth,
 } from "./Earth";
-import { createStarfield } from "../util/starfield";
-import { createSpaceDust, type SpaceDust } from "../util/spaceDust";
+import {
+  createFlightEnvironment,
+  type FlightEnvironment,
+} from "../util/flightEnvironment";
 import { COCKPITS } from "../data/cockpits";
 import type { Planet } from "../data/planets";
 import {
@@ -141,8 +143,7 @@ export class MissionScene implements SceneSlot {
 
   private readonly spark: SparkRenderer | null;
   private earth: Earth;
-  private starfield: THREE.Points;
-  private spaceDust: SpaceDust;
+  private flightEnvironment: FlightEnvironment;
   private sun: THREE.DirectionalLight;
 
   /**
@@ -156,6 +157,28 @@ export class MissionScene implements SceneSlot {
   private chaseUnderGlow: THREE.PointLight;
   /** Base sun intensity — exterior views push this up by `+0.8`. */
   private readonly baseSunIntensity = 2.4;
+  private readonly sunGlareGroup = new THREE.Group();
+  private readonly sunDiscMat = new THREE.MeshBasicMaterial({
+    color: 0xfff1c8,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  private readonly sunHaloMat = new THREE.MeshBasicMaterial({
+    color: 0x7ddcff,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  private readonly sunGhostMat = new THREE.MeshBasicMaterial({
+    color: 0xff9f6a,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
 
   private destinationGroup = new THREE.Group();
   private destinationMesh: THREE.Mesh;
@@ -275,31 +298,15 @@ export class MissionScene implements SceneSlot {
 
     this.chaseUnderGlow = new THREE.PointLight(0x6cf3ff, 0, 8, 2);
     this.chaseUnderGlow.position.set(0, -0.3, 0.5);
+    this.buildSunGlare();
 
     // Earth (GLB body + procedural shells).
     this.earth = createEarth();
     this.earth.setSunDirection(this.sun.position.clone().normalize());
     this.scene.add(this.earth.group);
 
-    // Distant starfield. Static at the far horizon; rotates very slowly.
-    this.starfield = createStarfield({
-      count: 10000,
-      radius: 9500,
-      size: 3.8,
-      twinkle: true,
-    });
-    this.scene.add(this.starfield);
-
-    // Streaming space dust — close-range particles that sweep past the
-    // cockpit window so the player visually feels the ship moving even
-    // when the destination is still small ahead. Cheap; ~900 particles.
-    this.spaceDust = createSpaceDust({
-      count: 900,
-      radius: 7,
-      length: 170,
-      size: 0.045,
-    });
-    this.scene.add(this.spaceDust.points);
+    this.flightEnvironment = createFlightEnvironment();
+    this.scene.add(this.flightEnvironment.group);
 
     // Destination placeholder sphere — a neutral grey ball that gets
     // recoloured + replaced by the planet GLB when we enter approach phase.
@@ -399,6 +406,24 @@ export class MissionScene implements SceneSlot {
         opacity: artemis.opacity,
       });
     }
+  }
+
+  private buildSunGlare(): void {
+    this.sunGlareGroup.name = "mission.sunGlare";
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(26, 48), this.sunDiscMat);
+    const halo = new THREE.Mesh(new THREE.CircleGeometry(92, 64), this.sunHaloMat);
+    const ghostA = new THREE.Mesh(new THREE.CircleGeometry(14, 32), this.sunGhostMat);
+    const ghostB = new THREE.Mesh(new THREE.CircleGeometry(8, 32), this.sunGhostMat.clone());
+    disc.name = "mission.sunGlare.disc";
+    halo.name = "mission.sunGlare.halo";
+    ghostA.name = "mission.sunGlare.ghostA";
+    ghostB.name = "mission.sunGlare.ghostB";
+    disc.renderOrder = -2;
+    halo.renderOrder = -3;
+    ghostA.renderOrder = -1;
+    ghostB.renderOrder = -1;
+    this.sunGlareGroup.add(halo, disc, ghostA, ghostB);
+    this.scene.add(this.sunGlareGroup);
   }
 
   setEvents(events: MissionEvents): void {
@@ -508,6 +533,12 @@ export class MissionScene implements SceneSlot {
     // debug shortcut visually identical to a normal final descent.
     this.phaseController.forcePhase("touchdown");
     this.phaseController.forcePhase("landed");
+    const token = this.touchdownHandoffToken;
+    window.setTimeout(() => {
+      if (token === this.touchdownHandoffToken && this.phaseController.phase === "landed") {
+        this.fireTouchdownHandoff(token);
+      }
+    }, (LANDING_BRIDGE_SEC + 0.5) * 1000);
   }
 
   /**
@@ -654,31 +685,19 @@ export class MissionScene implements SceneSlot {
     const camDistanceFromEarth = this.camera.position.length();
     this.earth.setCameraDistance(camDistanceFromEarth);
 
-    // Stars are placed at world radius 9500; if we never moved them with
-    // the ship they'd start to feel "left behind" once the rocket has
-    // actually traveled meaningful units. Keep them anchored on the
-    // CAMERA position so they always read as the infinitely-far horizon.
-    this.starfield.position.copy(this.camera.position);
-    this.starfield.rotation.y += deltaSec * 0.001;
-
-    // Streaming dust: respawns particles ahead of the ship as they sweep
-    // past, so the player feels the ship moving. Hide once landed (ship
-    // velocity is zero so respawning is wasted work). At cruise speed
-    // we widen the particles + bump opacity so the dust streaks read as
-    // wind-blur (B4 in PLAN.md).
     const phase = this.phaseController.phase;
-    const dustVisible = phase !== "landed";
-    this.spaceDust.points.visible = dustVisible;
-    if (dustVisible) {
-      const dustSpeed = this.dynamics.ship.velocity.length();
-      const dustNorm = clamp01(dustSpeed / 60);
-      this.spaceDust.update(
-        this.dynamics.ship.position,
-        this.dynamics.ship.forward,
-        deltaSec,
-        dustNorm,
-      );
-    }
+    const envSpeedNorm = clamp01(this.dynamics.ship.velocity.length() / 60);
+    this.flightEnvironment.update({
+      cameraPosition: this.camera.position,
+      shipPosition: this.dynamics.ship.position,
+      shipForward: this.dynamics.ship.forward,
+      shipVelocity: this.dynamics.ship.velocity,
+      speedNorm: envSpeedNorm,
+      boost: this.input.boost,
+      elapsedSec,
+      deltaSec,
+      visible: phase !== "landed",
+    });
 
     // The player flies the rocket from frame zero — even during the
     // liftoff phase. `runFlight` branches by control mode (manual /
@@ -753,9 +772,10 @@ export class MissionScene implements SceneSlot {
     const dyn = this.dynamics;
     const speed = dyn.ship.velocity.length();
     const speedNorm = clamp01(speed / 60);
+    this.updateSunGlare(deltaSec, exteriorWeight, speedNorm);
     const landingPhase = phase === "touchdown" || phase === "landed";
     this.rig.setThrottle(this.autopilotThrottle, this.input.boost, speedNorm);
-    this.rig.setSpeedFovBias(speedNorm * (landingPhase ? 1.5 : 4));
+    this.rig.setSpeedFovBias(speedNorm * (landingPhase ? 1.5 : 6.5));
     this.rig.setExteriorFollowTightness(landingPhase ? 1 : 0);
 
     // Cockpit "agility" signal — ramps up while the player is actively
@@ -839,7 +859,7 @@ export class MissionScene implements SceneSlot {
   dispose(): void {
     this.rig.dispose();
     this.earth.dispose();
-    this.spaceDust.dispose();
+    this.flightEnvironment.dispose();
     this.clearDestinationModel();
     this.clearSurfaceSplat();
     this.scene.traverse((obj) => {
@@ -1407,6 +1427,40 @@ export class MissionScene implements SceneSlot {
     );
     const scale = 1 + approachT * 0.05 + proximity * 0.08;
     this.destinationAtmosphere.scale.setScalar(scale);
+  }
+
+  private updateSunGlare(dt: number, exteriorWeight: number, speedNorm: number): void {
+    const sunDir = this._scratchDesiredFwd.copy(this.sun.position).normalize();
+    const cameraForward = _scratchTargetDir.set(0, 0, -1).applyQuaternion(this.camera.quaternion);
+    const facingSun = clamp01(cameraForward.dot(sunDir));
+    const phase = this.phaseController.phase;
+    const phaseBoost = phase === "cruise" ? 1 : phase === "approach" ? 0.75 : 0.45;
+    const target = Math.pow(facingSun, 2.2) * phaseBoost * (0.45 + exteriorWeight * 0.55);
+
+    this.sunGlareGroup.position
+      .copy(this.camera.position)
+      .add(sunDir.multiplyScalar(2600));
+    this.sunGlareGroup.lookAt(this.camera.position);
+
+    const halo = this.sunGlareGroup.children[0];
+    const disc = this.sunGlareGroup.children[1];
+    const ghostA = this.sunGlareGroup.children[2];
+    const ghostB = this.sunGlareGroup.children[3];
+    halo.position.set(0, 0, 0);
+    disc.position.set(0, 0, 0.1);
+    ghostA.position.set(-120, 36, 0.2);
+    ghostB.position.set(170, -48, 0.2);
+
+    this.sunDiscMat.opacity = damp(this.sunDiscMat.opacity, target * 0.26, 4, dt);
+    this.sunHaloMat.opacity = damp(
+      this.sunHaloMat.opacity,
+      target * (0.18 + speedNorm * 0.10),
+      4,
+      dt,
+    );
+    this.sunGhostMat.opacity = damp(this.sunGhostMat.opacity, target * 0.075, 4, dt);
+    const ghostBMat = (ghostB as THREE.Mesh).material as THREE.MeshBasicMaterial;
+    ghostBMat.opacity = damp(ghostBMat.opacity, target * 0.055, 4, dt);
   }
 
   private beginLandedHandoff(): void {
