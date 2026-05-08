@@ -348,37 +348,11 @@ export class FlightInput {
         pitchLimit,
       );
     } else {
-      // Mouse not held. Per-mode release behaviour:
-      //   cockpit: slow drift back to centre — pilot's head naturally
-      //            relaxes forward over a couple of seconds.
-      //   chase / external: HOLD position. The MSFS rule — once you've
-      //            framed the shot with a drag, the camera stays there
-      //            until you drag again or cycle the view.
-      if (this.viewMode === "cockpit") {
-        this.headLookYawSpring.target = damp(
-          this.headLookYawSpring.target,
-          0,
-          1.5,
-          dt,
-        );
-        this.headLookPitchSpring.target = damp(
-          this.headLookPitchSpring.target,
-          0,
-          1.5,
-          dt,
-        );
-        // Snap targets to exact 0 when within a millidegree so the
-        // inner spring integrator stops producing micro-drift values
-        // that would otherwise keep firing camera rotations every
-        // frame.
-        if (Math.abs(this.headLookYawSpring.target) < 0.001) {
-          this.headLookYawSpring.target = 0;
-        }
-        if (Math.abs(this.headLookPitchSpring.target) < 0.001) {
-          this.headLookPitchSpring.target = 0;
-        }
-      }
-      // chase / external: no recentre — orbit angle persists.
+      // Mouse not held. All modes HOLD position — once you've framed
+      // the view with a drag, the camera stays there until you drag
+      // again, press V (look-back), or cycle the view. Cockpit used
+      // to spring back to centre, but a free-look pilot view needs
+      // to stay where the player put it.
     }
     this.pendingMouseX = 0;
     this.pendingMouseY = 0;

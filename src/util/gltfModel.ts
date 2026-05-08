@@ -28,6 +28,22 @@ export function preloadGltf(url: string): Promise<void> {
   return loadGltfCached(url).then(() => {});
 }
 
+/**
+ * Load a GLB/GLTF at its native scale and pivot. Caller is responsible for
+ * positioning / rotating / scaling the returned group. Useful for assets
+ * whose author has already laid out the geometry around a meaningful pivot
+ * (e.g. cockpit interiors that want the pilot eye at a specific height).
+ */
+export async function loadGltfRaw(url: string): Promise<THREE.Group> {
+  const gltf = await loadGltfCached(url);
+  const scene = clone(gltf.scene) as THREE.Group;
+  scene.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.isMesh) mesh.frustumCulled = false;
+  });
+  return scene;
+}
+
 export async function loadNormalizedGltfModel(
   url: string,
   targetDiameter: number,

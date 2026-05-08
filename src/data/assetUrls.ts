@@ -5,6 +5,13 @@ export const ARTEMIS_ROCKET_GLB_URL =
 export const EARTH_GLB_URL = "/models/earth/earth.glb";
 
 /**
+ * Optional GLB cockpit interior. Drop a CC0/CC-BY spacecraft cockpit GLB here
+ * and the rig will load it; otherwise the cockpit falls back to a richly
+ * detailed procedural shell built in {@link createProceduralCockpit}.
+ */
+export const COCKPIT_GLB_URL = "/models/cockpits/spacecraft_cockpit.glb";
+
+/**
  * URL prefix for the Spark public mock splats seeded by `npm run worlds:mock`.
  * These are stock demo splats (e.g. a butterfly) that we never want to show
  * in place of a real world — if a `splatUrl` still points here, the scene

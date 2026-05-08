@@ -22,7 +22,6 @@ import {
   createFlightEnvironment,
   type FlightEnvironment,
 } from "../util/flightEnvironment";
-import { COCKPITS } from "../data/cockpits";
 import type { Planet } from "../data/planets";
 import {
   damp,
@@ -393,19 +392,6 @@ export class MissionScene implements SceneSlot {
         },
       },
     );
-
-    // Cockpit splat — uses the same record FlightScene used.
-    const artemis = COCKPITS.find((c) => c.id === "artemis");
-    if (artemis) {
-      void this.rig.setCockpitSplat({
-        splatUrl: artemis.splatUrl,
-        cameraOffset: artemis.pose.cameraOffset,
-        splatRotation: artemis.pose.splatRotation,
-        splatScale: artemis.pose.splatScale,
-        tint: artemis.tint,
-        opacity: artemis.opacity,
-      });
-    }
   }
 
   private buildSunGlare(): void {
@@ -817,6 +803,16 @@ export class MissionScene implements SceneSlot {
 
     // Drive the rig (camera composition + view-mode dolly).
     this.rig.update(deltaSec, elapsedSec);
+    this.rig.setCockpitControls(
+      {
+        input: this.input,
+        telemetry: this.getTelemetry(),
+        controlMode: this._controlMode,
+        cockpitWeight: this.rig.cockpitWeight,
+      },
+      deltaSec,
+      elapsedSec
+    );
     this.protectCameraFromDestinationSurface();
 
     // Camera altitude floor: at the launch pad the ship's nose points up, so

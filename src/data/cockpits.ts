@@ -28,9 +28,34 @@ export interface Cockpit {
   tint: [number, number, number];
   /** Global splat opacity multiplier (0..1). Lowers slightly so the windshield reads cleaner. */
   opacity: number;
+  /**
+   * At cruise speed (plume-driven `speedFade` → 1), cockpit splat opacity is
+   * multiplied by `(1 - strength * speedFade)`. Default in rig is **0.15**.
+   * Slightly higher values help dense Marble interiors read more transparent
+   * in motion without lowering rest opacity further.
+   */
+  speedOpacityFadeStrength?: number;
 }
 
 export const COCKPITS: Cockpit[] = [
+  {
+    id: "marble-observation",
+    name: "Observation Deck (Marble)",
+    prompt:
+      "First-person sci-fi observation deck or small craft interior, ceramic and matte panels frame a large forward viewport onto empty black space only — " +
+      "no distant stars, planets, or terrain baked into the view; open void for compositing. Moody cool interior fill, subtle cyan accent lighting, no crew.",
+    splatUrl:
+      "https://cdn.marble.worldlabs.ai/bb6a05a3-2735-4367-9a19-722ab4153436/5b0a01b4-0727-41bb-9c15-6f4119eb8cb5_ceramic.spz",
+    pose: {
+      cameraOffset: [0, 0, 0],
+      splatRotation: [0, 0, 0],
+      splatScale: 1.0,
+    },
+    // Darker tint + lower opacity so the real scene reads through viewport glass.
+    tint: [0.4, 0.43, 0.5],
+    opacity: 0.78,
+    speedOpacityFadeStrength: 0.24,
+  },
   {
     id: "artemis",
     name: "Artemis II Crew Cabin",
@@ -46,8 +71,7 @@ export const COCKPITS: Cockpit[] = [
     // overwritten by `worlds:generate -- --table cockpits`.
     splatUrl: "https://sparkjs.dev/assets/splats/butterfly.spz",
     // Marble's scan origin sits at (0, 0, 0) looking down -Z (the windshield
-    // direction), which is exactly where our cockpit camera lives. The
-    // splat is parented to the camera so it follows the player's head.
+    // direction), which is exactly where our cockpit camera lives.
     pose: {
       cameraOffset: [0, 0, 0],
       splatRotation: [0, 0, 0],
@@ -59,6 +83,12 @@ export const COCKPITS: Cockpit[] = [
     opacity: 0.95,
   },
 ];
+
+/**
+ * Single source of truth for which cockpit interior flight scenes load.
+ * Change this to `"artemis"` to use the legacy Artemis record.
+ */
+export const ACTIVE_COCKPIT_ID = "marble-observation";
 
 export function getCockpit(id: string): Cockpit {
   const cockpit = COCKPITS.find((c) => c.id === id);

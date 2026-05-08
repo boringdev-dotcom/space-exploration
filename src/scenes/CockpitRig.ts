@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { SplatMesh } from "@sparkjsdev/spark";
+import {
+  createProceduralCockpit,
+  type ProceduralCockpit,
+  type CockpitState,
+  type CockpitInteractionCallbacks,
+} from "../util/proceduralCockpit";
 
 import { ARTEMIS_ROCKET_GLB_URL } from "../data/assetUrls";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
@@ -90,16 +95,14 @@ export class CockpitRig {
 
   /** Sub-group holding the chase-cam hero (Artemis + plume). */
   private readonly chaseGroup = new THREE.Group();
-  /** Sub-group holding the cockpit splat (parented to camera). */
+  /** Sub-group holding the cockpit splat in ship/world space. */
   private readonly cockpitGroup = new THREE.Group();
 
   private artemis: THREE.Group | null = null;
   private artemisLoaded = false;
   private artemisLoadStarted = false;
 
-  private cockpitSplat: SplatMesh | null = null;
-  private cockpitSplatGroup = new THREE.Group();
-  private cockpitSplatLoadId = 0;
+  private proceduralCockpit: ProceduralCockpit;
 
   private plume: EnginePlume;
 
@@ -115,13 +118,6 @@ export class CockpitRig {
   /** Legacy 0..1 chase-blend retained for callers that read it; equals
    *  the crossfade-weighted weight of `chase` against `cockpit`. */
   private viewBlend = 0;
-
-  /** Cinematic cockpit fade-in. While < 1, the cockpit splat opacity is
-   *  multiplied by this; used by the opening exterior → cockpit handoff. */
-  private cockpitFadeIn = 1;
-  private cockpitFadeTween: Tween | null = null;
-  /** Target cockpit splat opacity (set by setCockpitSplat). */
-  private cockpitTargetOpacity = 1;
 
   /** Shake/idle scratch vectors (avoid per-frame allocation). */
   private readonly _scratchLookAt = new THREE.Vector3();
@@ -189,13 +185,18 @@ export class CockpitRig {
   private externalZoom = 1.0;
 
   private readonly camera: THREE.PerspectiveCamera;
+  private readonly scene: THREE.Scene;
+
+  /**
+   * Perspective `near` eased toward a tight value in cockpit so windshield
+   * frames and consoles don't clip; exterior modes keep the scene default.
+   */
+  private smoothedCameraNear = 0.1;
 
   /** Throttle/boost set by the host every frame; used to drive the plume. */
   private throttle = 1;
   private boost = 0;
   private plumeSpeedNorm = 0;
-  /** Damped speed-norm used to fade cockpit windshield slightly at high speed. */
-  private cockpitSpeedFade = 0;
 
   /** Speed-driven FOV bias (degrees, added on top of profile FOV). */
   private speedFovBias = 0;
@@ -252,14 +253,17 @@ export class CockpitRig {
 
   constructor(opts: CockpitRigOpts) {
     this.camera = opts.camera;
+    this.scene = opts.scene;
 
     this.root.name = "cockpitRig";
     this.root.add(this.chaseGroup);
-    this.cockpitGroup.add(this.cockpitSplatGroup);
-    // The cockpit group is parented to the camera so its splat moves with
-    // the player's head; we add it via the host scene + matrixAuto setup so
-    // the camera can be reused across scenes.
+    this.proceduralCockpit = createProceduralCockpit();
+    this.cockpitGroup.add(this.proceduralCockpit.group);
+    // Keep the cockpit in 3D ship/world space, not parented to the camera.
+    // The camera sits inside this splat and can pan independently, which
+    // gives the cabin real parallax instead of feeling like a lens overlay.
     opts.scene.add(this.root);
+    opts.scene.add(this.cockpitGroup);
 
     // Engine plume sits at the rocket's engine bell, oriented along -Y by
     // default. The Artemis GLB is rotated so its nose points -Z and tail
@@ -281,15 +285,17 @@ export class CockpitRig {
     window.addEventListener("wheel", this._onWheel, { passive: false });
   }
 
+  /** Ensure the cockpit splat participates in the active scene render. */
   attachCockpitToCamera(): void {
-    if (this.cockpitGroup.parent !== this.camera) {
-      this.camera.add(this.cockpitGroup);
+    if (this.cockpitGroup.parent !== this.scene) {
+      this.scene.add(this.cockpitGroup);
     }
   }
 
+  /** Remove the cockpit splat from the active scene render. */
   detachCockpitFromCamera(): void {
-    if (this.cockpitGroup.parent === this.camera) {
-      this.camera.remove(this.cockpitGroup);
+    if (this.cockpitGroup.parent === this.scene) {
+      this.scene.remove(this.cockpitGroup);
     }
   }
 
@@ -476,21 +482,8 @@ export class CockpitRig {
    * exterior-to-cockpit handoff. While the tween runs, the cockpit splat's
    * opacity is multiplied by `cockpitFadeIn`.
    */
-  beginCinematicCockpitFade(durationSec = 1.4): void {
-    this.cockpitFadeIn = 0;
-    this.cockpitFadeTween?.cancel();
-    this.cockpitFadeTween = new Tween(durationSec, easeInOutCubic, (eased) => {
-      this.cockpitFadeIn = eased;
-      if (this.cockpitSplat) {
-        this.cockpitSplat.opacity = this.cockpitTargetOpacity * this.cockpitFadeIn;
-      }
-    }, () => {
-      this.cockpitFadeIn = 1;
-      if (this.cockpitSplat) {
-        this.cockpitSplat.opacity = this.cockpitTargetOpacity;
-      }
-    });
-    this.cockpitFadeTween.start();
+  beginCinematicCockpitFade(_durationSec = 1.4): void {
+    // Procedural cockpit doesn't fade in yet
   }
 
   /**
@@ -539,14 +532,23 @@ export class CockpitRig {
     }
     const tBlend = easeInOutCubic(this.viewT);
 
-    // Cinematic cockpit fade tween (used by the opening sequence).
-    this.cockpitFadeTween?.update(dt);
-
     // Idle hand-held sway. Read from the mid-blend so the amplitude
     // matches the visual mode the camera is closer to.
     const chaseWeight = this.viewModeWeight("chase", tBlend);
     const externalWeight = this.viewModeWeight("external", tBlend);
     const cockpitWeight = this.viewModeWeight("cockpit", tBlend);
+
+    const nearTarget = cockpitWeight > 0.9 ? 0.018 : 0.1;
+    this.smoothedCameraNear = damp(
+      this.smoothedCameraNear,
+      nearTarget,
+      16,
+      dt,
+    );
+    if (Math.abs(this.camera.near - this.smoothedCameraNear) > 1e-6) {
+      this.camera.near = this.smoothedCameraNear;
+      this.camera.updateProjectionMatrix();
+    }
 
     // Legacy 0..1 chase blend retained for callers reading the field.
     this.viewBlend = chaseWeight + externalWeight;
@@ -668,30 +670,36 @@ export class CockpitRig {
       .add(this._idleSwayPos)
       .add(this.extraShakeOffset);
 
-    // Pick a camera up vector. In COCKPIT view the camera IS the pilot's
-    // head, so we anchor up to the ship's actual local-up — meaning the
-    // player visually sees the world tilt when they roll. In chase /
-    // external the up vector stays world-up so the camera horizon stays
-    // level (the chase-bank effect handles the visual tilt instead).
-    //
-    // We damp the up vector toward its target so per-frame chatter on
-    // ship-roll doesn't translate into a wobbling head-look pivot —
-    // head-look rotates around camera.up, and a jittery up axis is
-    // visible as cockpit "shake" even when the eye/look targets are
-    // perfectly stable.
-    if (cockpitWeight > 0.001 && ship) {
-      _scratchShipUp.set(0, 1, 0).applyQuaternion(this._smoothShipQuat);
-      _scratchCamUp.copy(_worldUp).lerp(_scratchShipUp, cockpitWeight);
-      dampVec3(this._smoothCameraUp, _scratchCamUp, 12, dt);
-      this.camera.up.copy(this._smoothCameraUp).normalize();
+    const pureCockpit = cockpitWeight > 0.98 && ship && this.smoothShipInitialized;
+    if (pureCockpit) {
+      // In full cockpit mode, avoid `lookAt` entirely. `lookAt` plus a
+      // damped up-vector can wobble by tiny amounts when the ship points
+      // near world-up, which makes a close Gaussian-splat interior shimmer.
+      // The ship quaternion already encodes the exact pilot frame: local -Z
+      // is forward, local Y is up.
+      this.camera.quaternion.copy(this._smoothShipQuat);
+      this.camera.up
+        .set(0, 1, 0)
+        .applyQuaternion(this._smoothShipQuat)
+        .normalize();
+      this._smoothCameraUp.copy(this.camera.up);
     } else {
-      // Snap smoothed up back to world-Y in chase/external so re-entering
-      // cockpit later doesn't carry a stale tilt.
-      dampVec3(this._smoothCameraUp, _worldUp, 6, dt);
-      this.camera.up.set(0, 1, 0);
-    }
+      // Pick a camera up vector. During view blends we still use `lookAt`
+      // so cockpit/chase/external interpolate through one shared profile.
+      if (cockpitWeight > 0.001 && ship) {
+        _scratchShipUp.set(0, 1, 0).applyQuaternion(this._smoothShipQuat);
+        _scratchCamUp.copy(_worldUp).lerp(_scratchShipUp, cockpitWeight);
+        dampVec3(this._smoothCameraUp, _scratchCamUp, 12, dt);
+        this.camera.up.copy(this._smoothCameraUp).normalize();
+      } else {
+        // Snap smoothed up back to world-Y in chase/external so re-entering
+        // cockpit later doesn't carry a stale tilt.
+        dampVec3(this._smoothCameraUp, _worldUp, 6, dt);
+        this.camera.up.set(0, 1, 0);
+      }
 
-    this.camera.lookAt(rawLook);
+      this.camera.lookAt(rawLook);
+    }
 
     // FOV is part of the profile, plus a per-frame speed bias and an
     // optional transient boost punch so the camera widens at high speed.
@@ -738,6 +746,25 @@ export class CockpitRig {
       if (pitch !== 0) this.camera.rotateX(pitch);
     }
 
+    // The cockpit interior is a real world-space object now, not a camera
+    // child. Pin it to the same smoothed pose the camera uses so the
+    // player stays anchored to the pilot seat — including under sustained
+    // acceleration. (`_smoothCockpitEye` lags `_smoothShipPos` by one
+    // damping stage; without this the cockpit shell tracks the ship
+    // faster than the camera and the player slides out the seat-back
+    // when they throttle up.)
+    if (ship && this.smoothShipInitialized) {
+      if (cockpitWeight > 0.5 && this.cockpitSmoothInitialized) {
+        this.cockpitGroup.position.copy(this._smoothCockpitEye);
+      } else {
+        this.cockpitGroup.position.copy(this._smoothShipPos);
+      }
+      this.cockpitGroup.quaternion.copy(this._smoothShipQuat);
+    } else {
+      this.cockpitGroup.position.copy(this.root.position);
+      this.cockpitGroup.quaternion.copy(this.root.quaternion);
+    }
+
     // Visibility:
     //   cockpit weight > 0 → cockpit splat visible
     //   chase + external weight > 0 → chase rocket + plume visible
@@ -758,31 +785,6 @@ export class CockpitRig {
       this.plume.setState(this.throttle, this.boost, this.plumeSpeedNorm);
       this.plume.update(dt, elapsed);
     }
-
-    // Cockpit windshield "transparency" pop at high speed (C4): the
-    // splat fades from full opacity at rest to ~85% at top speed,
-    // strengthening the sensation of motion through the glass.
-    this.cockpitSpeedFade = damp(
-      this.cockpitSpeedFade,
-      this.plumeSpeedNorm,
-      4,
-      dt,
-    );
-    if (this.cockpitSplat) {
-      const speedMul = 1 - 0.15 * this.cockpitSpeedFade;
-      this.cockpitSplat.opacity =
-        this.cockpitTargetOpacity * this.cockpitFadeIn * speedMul;
-    }
-
-    // Cockpit interior is rock-steady in cockpit view: a wobbling cabin
-    // (previous "cabin breathing" + idle roll sway on the splat) reads as
-    // motion sickness rather than realism, since the camera IS the pilot's
-    // head. Pin the splat group to identity every frame so any leftover
-    // transform from earlier behaviour is cleared.
-    if (this.cockpitSplatGroup) {
-      this.cockpitSplatGroup.position.set(0, 0, 0);
-      this.cockpitSplatGroup.rotation.set(0, 0, 0);
-    }
   }
 
   /** Mix weight (0..1) of `mode` for the current crossfade `t`. */
@@ -792,13 +794,14 @@ export class CockpitRig {
     return prev + (cur - prev) * t;
   }
 
-  /** Per-mode FOV. */
+  /** Per-mode FOV (cockpit may take a hint from GLB `Pilot_Eye.fov_recommended`). */
   private profileFov(mode: ViewMode): number {
-    return mode === "cockpit"
-      ? COCKPIT_FOV
-      : mode === "chase"
-        ? CHASE_FOV
-        : EXTERNAL_FOV;
+    if (mode === "cockpit") {
+      const fromGlb = this.proceduralCockpit.getCockpitFovHintDegrees();
+      if (fromGlb != null) return fromGlb;
+      return COCKPIT_FOV;
+    }
+    return mode === "chase" ? CHASE_FOV : EXTERNAL_FOV;
   }
 
   /**
@@ -923,73 +926,21 @@ export class CockpitRig {
     this.chaseGroup.visible = visible;
   }
 
-  /**
-   * Plug a generated cockpit splat into the rig. Pose options come from the
-   * cockpit data record; visibility/parenting is managed automatically.
-   */
-  async setCockpitSplat(opts: {
-    splatUrl: string;
-    cameraOffset?: [number, number, number];
-    splatRotation?: [number, number, number];
-    splatScale?: number;
-    tint?: [number, number, number];
-    opacity?: number;
-  }): Promise<void> {
-    this.cockpitSplatLoadId++;
-    const loadId = this.cockpitSplatLoadId;
-
-    // Tear down any prior splat.
-    if (this.cockpitSplat) {
-      this.cockpitSplatGroup.remove(this.cockpitSplat);
-      this.cockpitSplat.dispose?.();
-      this.cockpitSplat = null;
-    }
-
-    const splat = new SplatMesh({ url: opts.splatUrl });
-    // Spark's right-side-up convention (180° around X) — Marble exports Y-down.
-    splat.quaternion.set(1, 0, 0, 0);
-    if (opts.splatRotation) {
-      const e = new THREE.Euler(...opts.splatRotation);
-      const q = new THREE.Quaternion().setFromEuler(e);
-      splat.quaternion.premultiply(q);
-    }
-    if (opts.cameraOffset) {
-      splat.position.set(...opts.cameraOffset);
-    }
-    if (opts.splatScale) splat.scale.setScalar(opts.splatScale);
-
-    // Marble bakes its own studio lighting into the splat. Pulling `recolor`
-    // toward (0.4, 0.42, 0.48) tints every splat by that factor so the
-    // interior reads as a moody dim cabin rather than a brightly-lit office.
-    if (opts.tint) {
-      splat.recolor.setRGB(opts.tint[0], opts.tint[1], opts.tint[2]);
-    }
-    this.cockpitTargetOpacity = opts.opacity ?? 1;
-    splat.opacity = this.cockpitTargetOpacity * this.cockpitFadeIn;
-
-    // Render order so it always sits on top of the flight scene; depth test
-    // off so we don't depth-fight the procedural skybox behind it.
-    splat.renderOrder = 10;
-
-    try {
-      await splat.initialized;
-      if (loadId !== this.cockpitSplatLoadId) {
-        splat.dispose?.();
-        return;
-      }
-      this.cockpitSplat = splat;
-      this.cockpitSplatGroup.add(splat);
-      this.attachCockpitToCamera();
-    } catch (err) {
-      console.warn("[CockpitRig] cockpit splat failed to load", err);
-    }
+  setCockpitControls(state: CockpitState, dt: number, elapsed: number): void {
+    this.proceduralCockpit.update(state, dt, elapsed);
   }
 
-  /** Tune the cockpit splat tint at runtime (debug HUD). */
-  setCockpitTint(r: number, g: number, b: number): void {
-    if (this.cockpitSplat) {
-      this.cockpitSplat.recolor.setRGB(r, g, b);
-    }
+  /**
+   * Wire the procedural cockpit's clickable controls (autopilot button,
+   * view-mode button, headlights toggle) to host callbacks. Pointer events
+   * are listened for on `domElement` and only fire while cockpit view is
+   * dominant.
+   */
+  attachCockpitInteraction(
+    domElement: HTMLElement,
+    callbacks: CockpitInteractionCallbacks,
+  ): void {
+    this.proceduralCockpit.attachInteractive(domElement, this.camera, callbacks);
   }
 
   /** Whether the Artemis GLB is attached and ready (for status surfacing). */
@@ -1004,10 +955,7 @@ export class CockpitRig {
       disposeObjectTree(this.artemis);
       this.chaseGroup.remove(this.artemis);
     }
-    if (this.cockpitSplat) {
-      this.cockpitSplatGroup.remove(this.cockpitSplat);
-      this.cockpitSplat.dispose?.();
-    }
+    this.proceduralCockpit.dispose();
     if (this.cockpitGroup.parent) {
       this.cockpitGroup.parent.remove(this.cockpitGroup);
     }
