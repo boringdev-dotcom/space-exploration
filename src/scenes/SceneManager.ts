@@ -98,6 +98,8 @@ export class SceneManager {
   private grainBias = 0.04;
   private bloomRadiusBias = 1;
   private vignetteBias = 0.5;
+  /** Cockpit view eases exposure down; reset when (re)entering mission. */
+  private smoothedMissionToneExposure = 0.95;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({
@@ -204,6 +206,28 @@ export class SceneManager {
       onToggleHelp: () => {
         if (this.state !== "mission") return;
         this.helpToggleListeners.forEach((cb) => cb());
+      },
+    });
+
+    // Wire the procedural cockpit's clickable physical controls. Pointer
+    // events are gated on cockpit-view weight inside the rig, so this is
+    // safe to attach once for the whole app lifetime.
+    this.mission.rig.attachCockpitInteraction(canvas, {
+      onToggleAutopilot: () => {
+        if (this.state !== "mission") return;
+        this.mission.toggleAutopilot();
+      },
+      onCycleView: () => {
+        if (this.state !== "mission") return;
+        this.cycleFlightView();
+      },
+      onToggleHeadlights: () => {
+        if (this.state !== "mission") return;
+        playCue("click");
+        // Lightweight visual cue: pulse the post-fx bloom briefly so the
+        // toggle reads as "headlights on/off" without a real lighting
+        // change. Cabin emissive bias is handled by the cockpit itself.
+        this.bloomBias = Math.min(1.6, this.bloomBias + 0.18);
       },
     });
 
@@ -400,8 +424,10 @@ export class SceneManager {
       this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
       // Mission gets a slightly tamer exposure (1.0) to keep the rocket
       // readable; hangar stays moody at 0.92; other states use 1.05.
-      this.renderer.toneMappingExposure =
+      const exp =
         next === "hangar" ? 0.92 : next === "mission" ? 0.95 : 1.05;
+      this.renderer.toneMappingExposure = exp;
+      if (next === "mission") this.smoothedMissionToneExposure = exp;
       this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     }
   }
@@ -634,6 +660,8 @@ export class SceneManager {
       // 6,000 km/s in our scale, so /3000 hits 1 by mid-cruise; clamp.
       const speedNorm = Math.max(0, Math.min(1, speedKmS / 3000));
       const proximity = this.mission.getAtmosphericProximity(); // 0..1
+      const cockpitWeight = this.mission.rig.cockpitWeight;
+      const cockpitFxMul = 1 - cockpitWeight;
       // Composite bloom bias — proximity contribution dialed back so the
       // launch pad (where camera AGL ≈ 4u and proximity ramps high by
       // construction) doesn't blow the picture out. The atmosphere shell
@@ -641,17 +669,22 @@ export class SceneManager {
       // change; proximity here is just a subtle accent.
       const targetBloomMul =
         1 +
-        this.lastInput.boost * 0.16 +
-        phaseBias * 0.35 +
-        speedNorm * 0.12 +
-        proximity * 0.16;
+        (this.lastInput.boost * 0.16 +
+          phaseBias * 0.35 +
+          speedNorm * 0.12 +
+          proximity * 0.16) *
+          cockpitFxMul;
       this.bloomBias = damp(this.bloomBias, targetBloomMul, 6, delta);
       const targetGrain =
-        0.028 + this.lastInput.boost * 0.012 + proximity * 0.012;
+        0.018 +
+        (0.01 + this.lastInput.boost * 0.012 + proximity * 0.012) *
+          cockpitFxMul;
       this.grainBias = damp(this.grainBias, targetGrain, 5, delta);
       // Bloom radius gentle — wide blooms read as wash. Keep it tight.
       const targetRadiusMul =
-        1 + this.lastInput.boost * 0.14 + proximity * 0.16 + speedNorm * 0.10;
+        1 +
+        (this.lastInput.boost * 0.14 + proximity * 0.16 + speedNorm * 0.1) *
+          cockpitFxMul;
       this.bloomRadiusBias = damp(
         this.bloomRadiusBias,
         targetRadiusMul,
@@ -665,11 +698,27 @@ export class SceneManager {
         grain: this.grainBias,
         bloomRadiusMul: this.bloomRadiusBias,
         vignette: this.vignetteBias,
-        chromatic: 0.08 + speedNorm * 0.18 + this.lastInput.boost * 0.20,
-        radialBlur: speedNorm * 0.24 + this.lastInput.boost * 0.28,
+        chromatic:
+          0.04 + (0.04 + speedNorm * 0.18 + this.lastInput.boost * 0.20) *
+            cockpitFxMul,
+        radialBlur:
+          (speedNorm * 0.24 + this.lastInput.boost * 0.28) * cockpitFxMul,
         warmth: proximity * 0.22,
-        lensDirt: 0.025 + proximity * 0.035 + this.lastInput.boost * 0.025,
+        lensDirt:
+          0.015 +
+          (0.01 + proximity * 0.035 + this.lastInput.boost * 0.025) *
+            cockpitFxMul,
       });
+
+      const expoTarget = THREE.MathUtils.lerp(0.95, 0.74, cockpitWeight);
+      this.smoothedMissionToneExposure = damp(
+        this.smoothedMissionToneExposure,
+        expoTarget,
+        14,
+        delta,
+      );
+      this.renderer.toneMappingExposure = this.smoothedMissionToneExposure;
+
       setDroneFlightState(this.lastInput.throttle, this.lastInput.boost);
 
       this.inputListeners.forEach((cb) => cb(this.lastInput));

@@ -7,7 +7,6 @@ import type { Planet } from "../data/planets";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
 import { CockpitRig, type ViewMode } from "./CockpitRig";
 import { damp, noise1D } from "../util/feel";
-import { COCKPITS } from "../data/cockpits";
 
 /**
  * In-flight + arrival scene. Drives a 25s warp animation toward a planet sphere
@@ -120,26 +119,12 @@ export class FlightScene implements SceneSlot {
     this.halo.position.copy(this.planet.position);
     this.scene.add(this.halo);
 
-    // The camera must be in the scene tree for objects parented to it (the
-    // cockpit splat) to be traversed by the renderer.
+    // Keep the camera in the scene tree so scene-level effects and helpers
+    // can resolve its world matrix consistently.
     this.scene.add(this.camera);
 
     // Cockpit rig — owns view-mode dolly, Artemis GLB, plume, cockpit splat.
     this.rig = new CockpitRig({ scene: this.scene, camera: this.camera });
-
-    // Kick off cockpit splat load. The Artemis cockpit is the only one for
-    // now; it's attached to the camera once the splat is initialized.
-    const artemis = COCKPITS.find((c) => c.id === "artemis");
-    if (artemis) {
-      void this.rig.setCockpitSplat({
-        splatUrl: artemis.splatUrl,
-        cameraOffset: artemis.pose.cameraOffset,
-        splatRotation: artemis.pose.splatRotation,
-        splatScale: artemis.pose.splatScale,
-        tint: artemis.tint,
-        opacity: artemis.opacity,
-      });
-    }
   }
 
   enter(): void {
@@ -272,6 +257,22 @@ export class FlightScene implements SceneSlot {
 
     // Drive the cockpit rig (owns camera position/lookAt + view-mode dolly).
     this.rig.update(delta, elapsed);
+    this.rig.setCockpitControls(
+      {
+        input: {
+          pitchRate: this.inputPitch,
+          yawRate: this.inputYaw,
+          rollRate: this.inputRoll,
+          throttle: this.inputThrottle,
+          boost: this.inputBoost,
+        },
+        telemetry: null, // FlightScene doesn't have full telemetry
+        controlMode: "auto",
+        cockpitWeight: this.rig.cockpitWeight,
+      },
+      delta,
+      elapsed
+    );
 
     // After the rig sets the camera transform, apply player steering on top
     // (additive pitch/yaw/roll). The rig's lookAt has already given us a

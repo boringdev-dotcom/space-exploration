@@ -1,4 +1,8 @@
-import { ARTEMIS_ROCKET_GLB_URL, EARTH_GLB_URL } from "./data/assetUrls";
+import {
+  ARTEMIS_ROCKET_GLB_URL,
+  COCKPIT_GLB_URL,
+  EARTH_GLB_URL,
+} from "./data/assetUrls";
 import { SceneManager } from "./scenes/SceneManager";
 import { mountDebugHud } from "./hud/debugHud";
 import { unlockAudio } from "./util/audio";
@@ -15,6 +19,7 @@ function bootstrap(): void {
   // share one cached parse (see gltfModel.ts) instead of duplicate work.
   void preloadGltf(ARTEMIS_ROCKET_GLB_URL);
   void preloadGltf(EARTH_GLB_URL);
+  void preloadGltf(COCKPIT_GLB_URL);
 
   const manager = new SceneManager(canvas);
   mountDebugHud({ manager });
