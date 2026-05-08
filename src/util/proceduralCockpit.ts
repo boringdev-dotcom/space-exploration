@@ -176,6 +176,14 @@ export function createProceduralCockpit(): ProceduralCockpit {
   let disposed = false;
   let cockpitFovHintDeg: number | null = null;
 
+  // Fallback animation hooks for Sketchfab-style cockpits that ship un-authored
+  // node names (no `throttle_slide` / `yoke_pivot` extras). These animate the
+  // visible levers + steering wheel directly from the player's input.
+  let fallbackThrottleNode: THREE.Object3D | null = null;
+  const fallbackThrottleBaseRotX = { v: 0 };
+  let fallbackSteeringNode: THREE.Object3D | null = null;
+  const fallbackSteeringBaseRot = new THREE.Euler();
+
   void loadGltfRaw(COCKPIT_GLB_URL)
     .then((model) => {
       if (disposed) return;
@@ -226,6 +234,25 @@ export function createProceduralCockpit(): ProceduralCockpit {
       // player can still toggle autopilot, view mode, and headlights
       // without floating UI cubes.
       retargetClickablesToGlb(clickables, namedNodes);
+
+      // Sketchfab-style cockpits without authored controls: bind the
+      // visible levers + dashboard glow directly. These hooks are
+      // visual-only (they don't influence the sim) and only fire when
+      // their node names exist on the loaded GLB.
+      if (!glbThrottle) {
+        const t = namedNodes.get("throttle");
+        if (t) {
+          fallbackThrottleNode = t;
+          fallbackThrottleBaseRotX.v = t.rotation.x;
+        }
+      }
+      if (!glbYoke) {
+        const s = namedNodes.get("steering");
+        if (s) {
+          fallbackSteeringNode = s;
+          fallbackSteeringBaseRot.copy(s.rotation);
+        }
+      }
     })
     .catch(() => {
       // No GLB present — that's fine, procedural shell is the visual.
@@ -285,6 +312,41 @@ export function createProceduralCockpit(): ProceduralCockpit {
       eul[glbYoke.pitchAxis] = damp(eul[glbYoke.pitchAxis], pitchTarget, 12, dt);
       eul[glbYoke.rollAxis] = damp(eul[glbYoke.rollAxis], rollTarget, 13, dt);
     }
+
+    // Fallback throttle: tip the lever forward with throttle, slight extra
+    // travel from boost. `throttle` here is already normalised 0..1.
+    if (fallbackThrottleNode) {
+      const t = clamp01(throttle * 0.85 + boost * 0.25);
+      const targetX =
+        fallbackThrottleBaseRotX.v - t * degToRad(35);
+      fallbackThrottleNode.rotation.x = damp(
+        fallbackThrottleNode.rotation.x,
+        targetX,
+        9,
+        dt,
+      );
+    }
+
+    // Fallback yoke: roll the wheel with player roll, tip with pitch.
+    if (fallbackSteeringNode) {
+      const targetRollY =
+        fallbackSteeringBaseRot.y + -roll * degToRad(28);
+      const targetPitchX =
+        fallbackSteeringBaseRot.x + pitch * degToRad(8);
+      fallbackSteeringNode.rotation.y = damp(
+        fallbackSteeringNode.rotation.y,
+        targetRollY,
+        13,
+        dt,
+      );
+      fallbackSteeringNode.rotation.x = damp(
+        fallbackSteeringNode.rotation.x,
+        targetPitchX,
+        12,
+        dt,
+      );
+    }
+
 
     // Mechanical attitude indicator + target reticle on the dashboard.
     attitudeBall.rotation.z = state.telemetry
