@@ -32,7 +32,7 @@ import {
   Tween,
 } from "../util/feel";
 import { disposeObjectTree, loadNormalizedGltfModel } from "../util/gltfModel";
-import { isMockSplatUrl } from "../data/assetUrls";
+import { isMockSplatUrl, LAUNCHPAD_SPZ_URL } from "../data/assetUrls";
 
 /**
  * Continuous mission scene — one playable flight from Earth pad through
@@ -55,6 +55,99 @@ const SHIP_PAD_OFFSET = 4;
 const APPROACH_RANGE = 200; // distance to dest centre that flips to "approach"
 const TOUCHDOWN_RANGE = 8; // altitude above dest surface that flips to "touchdown"
 const LANDING_BRIDGE_SEC = 2.4;
+
+// Launch pad SPZ tunables — adjust to match your generated Marble world.
+//
+// Conceptual layout: the SPZ is a captured scene around a ground observer.
+// The rocket should sit AT the launch tower visible in the scene (some
+// distance in front of and below the observer's eye). The Marble scan
+// origin (= where the observer stands) and the launch tower are different
+// points; both are inside the SPZ, separated by a few metres in the
+// real-world units the SPZ was authored in.
+//
+// `LAUNCHPAD_SPZ_SCALE` is "game units per native Marble unit". Keep this
+// at 1 so the launchpad renders from the same scan-space scale as Marble's
+// viewer and the SurfaceScene planet splats.
+//
+// `LAUNCHPAD_ROCKET_LOCAL_OFFSET` is where the rocket sits inside the
+// SPZ, expressed in the launchpad group's native/local frame AFTER the
+// splat's Y-flip (so +Y is up, +Z is "behind the observer", -Z is "in front
+// of the observer"). Negative Z = forward (the direction the Marble camera
+// was facing), negative Y = down (toward the SPZ's ground). The value is
+// authored in SPZ-local units; `positionLaunchpadAtShipPad` applies group
+// scale when converting it to mission-world space.
+//
+// The fade window is in game-units of altitude AGL. With the default
+// `liftoffHandoffAltitude = 8`, the launchpad is fully gone by the time
+// the phase machine flips to `cruise`.
+// SPZ scale (game-units per native Marble unit). The Brutalist Rocket Launch
+// Complex world spans ~187 wide × ~77 tall × ~114 deep in native units, which
+// at scale 1 would be 18,700 km — bigger than Earth in our 1-unit-=-100-km
+// mission space. 0.4 collapses the world to ~31 mission-units tall, which
+// frames the rocket nicely inside the gantry from the SPZ scan-origin
+// vantage. Tune up to make the world look bigger relative to the rocket;
+// tune down to bring it in tighter.
+const LAUNCHPAD_SPZ_SCALE = 0.4;
+// Default X/Z offset for the rocket inside the SPZ (in launchpadGroup-local
+// units, after the OpenCV→OpenGL Y-flip). +X = right, -Z = forward (the
+// direction the Marble scan camera was facing).
+//
+// When `LAUNCHPAD_AUTO_GROUND_FROM_BBOX` is on, the .y here is treated as a
+// LIFT above the splat's measured ground rather than an absolute coordinate
+// — i.e. the rocket's base sits at `bbox.min.y + offset.y`. This way the
+// number is portable across different Marble worlds (each one has its own
+// bbox.min.y, but a +4 lift still means "raise the rocket 4 SPZ-units above
+// whatever the ground turned out to be").
+//
+// Z = -15 in native SPZ units lands the rocket inside the gantry of the
+// Brutalist Rocket Launch Complex world — far enough forward that the
+// SPZ-scan-origin camera can see the whole rocket framed by the gantry,
+// rather than buried in the concrete bunker geometry at the pad's centre.
+//
+// Y = +4 lifts the rocket clear of the gantry's lower decking so the
+// boosters and engine bell are visible instead of being clipped into the
+// platform. Drop to 0 for a truly ground-level placement.
+//
+// Exposed for live tuning at runtime via `window.__missionLaunchpad` (see
+// `installLaunchpadDebug`). Edit X/Z to slide the rocket sideways/forward
+// until it lines up with the tower; the runtime helper hot-reloads placement
+// without a restart.
+const LAUNCHPAD_ROCKET_LOCAL_OFFSET = new THREE.Vector3(0, 8, -15);
+// Multiplier on the chase rocket model when the launchpad SPZ is loaded.
+// The launchpadGroup's vertical anchor is computed as
+//   ship.position.y − LAUNCHPAD_ROCKET_CENTER_HEIGHT − autoGroundY*scale
+// so the SPZ scan-origin's eye position can end up above OR below the
+// rocket depending on the rocket's half-height. We need the rocket to
+// extend above the camera so the lens can look up at the spire and read
+// it as a tall vehicle; setting scale = 4 makes the rocket ~5 mission-units
+// tall with a half-height of 2.4, which keeps the nose above the camera at
+// the SPZ-scale 0.32 used here. Smaller values (e.g. 2) drop the entire
+// rocket below the camera and the lens just stares at the pad floor.
+const LAUNCHPAD_ROCKET_VISUAL_SCALE = 4;
+// The ship transform is at the Artemis model's centreline, while the SPZ
+// local offset marks the ground contact point. Lift the ship anchor so the
+// rocket's engine/nozzle end rests on that point instead of sinking through it.
+const LAUNCHPAD_ROCKET_CENTER_HEIGHT = 0.6 * LAUNCHPAD_ROCKET_VISUAL_SCALE;
+// When `true`, the rocket's base Y inside the SPZ is auto-derived from the
+// splat's bounding box (lowest gaussian centre after the Y-flip). This is
+// what fixes the "rocket floating in mid-air" symptom — the hand-picked Y
+// in `LAUNCHPAD_ROCKET_LOCAL_OFFSET` only matches whichever SPZ it was
+// authored against, while reading the bbox always tracks the actual world.
+// Disable to fall back to the hand-picked Y (useful when the bbox is
+// dominated by sky/floater splats and gives a misleading ground).
+const LAUNCHPAD_AUTO_GROUND_FROM_BBOX = true;
+// Marble's viewer starts at the scan origin, then settles to y=1 looking
+// forward. Use the same eye lift so the SPZ framing matches the source world.
+const LAUNCHPAD_CAMERA_EYE_HEIGHT = 1;
+const LAUNCHPAD_FADE_START_ALT = 6;
+const LAUNCHPAD_FADE_END_ALT = 9;
+/**
+ * Opacity threshold above which the camera is locked to external view at
+ * the SPZ scan origin. Below this the SPZ has faded enough that normal
+ * chase / cockpit cycling is safe again — the camera is no longer
+ * "watching from the ground" anyway.
+ */
+const LAUNCHPAD_VIEW_LOCK_OPACITY = 0.5;
 
 // Roll-stabilization references for the autopilot's look-at attitude.
 const _missionWorldUp = new THREE.Vector3(0, 1, 0);
@@ -189,6 +282,38 @@ export class MissionScene implements SceneSlot {
   private surfaceSplatLoadId = 0;
   private surfaceSplatGroup = new THREE.Group();
   private surfaceFade = 0; // 0..1 alpha multiplier
+
+  /**
+   * Earth launch-pad SPZ shown during liftoff. Loaded from
+   * {@link LAUNCHPAD_SPZ_URL}; its opacity is driven by altitude AGL so the
+   * scene smoothly hands off to the orbital Earth view as the player climbs
+   * through {@link LAUNCHPAD_FADE_END_ALT}. Empty / mock URL → no-op (the
+   * group stays empty and no Spark work is queued).
+   */
+  private launchpadSplat: SplatMesh | null = null;
+  private launchpadSplatLoadId = 0;
+  private readonly launchpadGroup = new THREE.Group();
+  /** Damped 0..1 opacity used to drive both the splat and the group's visibility. */
+  private launchpadOpacity = 1;
+  /**
+   * Bounding box of the loaded launchpad splat in launchpadGroup-LOCAL space
+   * (i.e. AFTER the splat's Y-flip quaternion has been applied). Populated
+   * once `launchpadSplat.initialized` resolves; consumed by
+   * `positionLaunchpadAtShipPad` to anchor the rocket's base at the actual
+   * ground level inside the splat instead of a hand-picked Y. Null until a
+   * splat is loaded, or when the bbox is degenerate.
+   */
+  private launchpadBboxLocal: THREE.Box3 | null = null;
+  /**
+   * Live-tunable copy of {@link LAUNCHPAD_ROCKET_LOCAL_OFFSET}. The constant
+   * provides the build-time default; runtime adjustments via
+   * `window.__missionLaunchpad.setOffset(x, y, z)` mutate this vector and
+   * call `positionLaunchpadAtShipPad()` so the placement updates without a
+   * page reload. X/Z slide the rocket horizontally inside the SPZ, Y is
+   * overridden by the bbox when {@link LAUNCHPAD_AUTO_GROUND_FROM_BBOX}.
+   */
+  private readonly launchpadRocketOffset = LAUNCHPAD_ROCKET_LOCAL_OFFSET.clone();
+  private launchpadAutoGround = LAUNCHPAD_AUTO_GROUND_FROM_BBOX;
 
   private currentPlanet: Planet | null = null;
   private events: MissionEvents = {};
@@ -338,6 +463,12 @@ export class MissionScene implements SceneSlot {
     this.surfaceSplatGroup.position.copy(this.destinationMesh.position);
     this.scene.add(this.destinationGroup);
 
+    // Launch pad scene root. Position + orientation get set in
+    // {@link beginMission} so the pad anchors to the actual launch site.
+    this.launchpadGroup.name = "mission.launchpad";
+    this.launchpadGroup.scale.setScalar(LAUNCHPAD_SPZ_SCALE);
+    this.scene.add(this.launchpadGroup);
+
     // Cockpit rig + the ship transform feeding it.
     this.rig = new CockpitRig({ scene: this.scene, camera: this.camera });
     this.dynamics = new FlightDynamics(
@@ -468,7 +599,213 @@ export class MissionScene implements SceneSlot {
     this.openingStage = "cockpit";
     this.openingElapsed = 0;
     this.rig.followShip(this.dynamics.ship);
-    this.rig.setView("chase", true);
+    this.rig.setExteriorVisualScale(
+      LAUNCHPAD_SPZ_URL && !isMockSplatUrl(LAUNCHPAD_SPZ_URL)
+        ? LAUNCHPAD_ROCKET_VISUAL_SCALE
+        : 1,
+    );
+
+    // Anchor the launchpad SPZ to the surface point under the ship and
+    // (re-)load the splat. No-op when LAUNCHPAD_SPZ_URL is empty.
+    this.positionLaunchpadAtShipPad();
+    this.launchpadOpacity = 1;
+    if (this.launchpadSplat) this.launchpadSplat.opacity = 1;
+    this.launchpadGroup.visible = true;
+    void this.loadLaunchpadSplat();
+
+    // When a launchpad SPZ is configured, default to external view with
+    // the camera planted at the SPZ scan origin — the same vantage point
+    // Marble captured the world from. Player watches the rocket lift off
+    // from the ground, just like the planet surface scenes use the SPZ
+    // origin as the player's eye position. Without a launchpad URL we
+    // keep the legacy chase-view default.
+    if (LAUNCHPAD_SPZ_URL && !isMockSplatUrl(LAUNCHPAD_SPZ_URL)) {
+      this.rig.setView("external", true);
+      const eye = _scratchTouchTarget
+        .set(0, LAUNCHPAD_CAMERA_EYE_HEIGHT, 0)
+        .multiply(this.launchpadGroup.scale)
+        .applyQuaternion(this.launchpadGroup.quaternion)
+        .add(this.launchpadGroup.position);
+      this.rig.setExternalAnchorWorld(eye);
+    } else {
+      this.rig.setView("chase", true);
+    }
+  }
+
+  /**
+   * Place {@link launchpadGroup} so the live rocket lines up with the
+   * launch tower / pad point inside the SPZ rather than sitting at the
+   * scan origin. The Marble scan camera stood "at the observer position"
+   * — somewhere on the ground a short distance from the tower — so we
+   * offset the group such that the rocket's base lands at the tower's
+   * local coordinates within the SPZ
+   * ({@link LAUNCHPAD_ROCKET_LOCAL_OFFSET}).
+   *
+   * The group's local +Y is aligned to the radial direction so the SPZ's
+   * gravity direction matches the local "down" at the launch site. The
+   * Marble Y-flip is applied to the splat itself (quaternion in
+   * {@link loadLaunchpadSplat}); after that flip the SPZ-local axes are
+   * +Y up, -Z forward (the direction the Marble camera was facing).
+   */
+  private positionLaunchpadAtShipPad(): void {
+    const ship = this.dynamics.ship;
+    const radial = this._scratchVec.copy(ship.position).normalize();
+    // Build the group rotation first so we can transform the rocket
+    // offset from SPZ-local/native frame into world frame.
+    this._scratchDesiredQuat.setFromUnitVectors(_missionWorldUp, radial);
+    this.launchpadGroup.quaternion.copy(this._scratchDesiredQuat);
+
+    // Pick the Y-component of the offset. When the splat has loaded and
+    // auto-ground is enabled, snap the rocket base to the lowest gaussian
+    // centre in the splat (the ground inside the world) and treat
+    // `launchpadRocketOffset.y` as a LIFT above that ground — so a default
+    // of +4 raises the rocket 4 SPZ-units off the pad surface regardless of
+    // which world is loaded. Otherwise fall back to whatever Y is currently
+    // in `launchpadRocketOffset`, treated as an absolute SPZ-local Y.
+    const offsetY =
+      this.launchpadAutoGround && this.launchpadBboxLocal
+        ? this.launchpadBboxLocal.min.y + this.launchpadRocketOffset.y
+        : this.launchpadRocketOffset.y;
+
+    // World-space position of the rocket base within the SPZ frame =
+    // group_rotation × (group_scale × launchpadRocketOffset).
+    // The ship pose is at the rocket centre, so the base is one half-height
+    // below that along the local radial/up direction. We want:
+    //   group.position + rotated(scaledLocalOffset)
+    //     = ship.position - radial * LAUNCHPAD_ROCKET_CENTER_HEIGHT
+    const rotatedOffset = _scratchTouchTarget
+      .set(this.launchpadRocketOffset.x, offsetY, this.launchpadRocketOffset.z)
+      .multiply(this.launchpadGroup.scale)
+      .applyQuaternion(this._scratchDesiredQuat);
+    this.launchpadGroup.position
+      .copy(ship.position)
+      .addScaledVector(radial, -LAUNCHPAD_ROCKET_CENTER_HEIGHT)
+      .sub(rotatedOffset);
+
+    // Also re-anchor the external camera at the SPZ scan origin in world
+    // space. Without this the camera stays planted at whatever world point
+    // it was placed at when `beginMission` first called
+    // `setExternalAnchorWorld` — and live offset changes drag the splat out
+    // from under it, leaving the camera staring into empty sky.
+    if (this.rig.viewMode === "external") {
+      const eye = _scratchTargetDir
+        .set(0, LAUNCHPAD_CAMERA_EYE_HEIGHT, 0)
+        .multiply(this.launchpadGroup.scale)
+        .applyQuaternion(this.launchpadGroup.quaternion)
+        .add(this.launchpadGroup.position);
+      this.rig.setExternalAnchorWorld(eye);
+    }
+  }
+
+  /**
+   * Stream the launchpad SPZ from {@link LAUNCHPAD_SPZ_URL} into
+   * {@link launchpadGroup}. Idempotent — if a splat is already loaded with
+   * the same URL we leave it in place; if a load is already in flight,
+   * the older request is invalidated by the bumped {@link launchpadSplatLoadId}.
+   * Empty/mock URL is a no-op (caller's responsibility to handle the
+   * fallback experience).
+   */
+  private async loadLaunchpadSplat(): Promise<void> {
+    if (!LAUNCHPAD_SPZ_URL || isMockSplatUrl(LAUNCHPAD_SPZ_URL)) return;
+    if (!this.spark) return;
+    if (this.launchpadSplat) {
+      // Already loaded — re-use across missions, but make sure the cached
+      // bbox is still applied to the freshly-anchored launchpad group.
+      this.positionLaunchpadAtShipPad();
+      return;
+    }
+    const loadId = ++this.launchpadSplatLoadId;
+    try {
+      const splat = new SplatMesh({ url: LAUNCHPAD_SPZ_URL });
+      // Same OpenCV→OpenGL Y-flip used by the surface splat path. Marble
+      // worlds are exported Y-down; this rights them inside our scene.
+      splat.quaternion.set(1, 0, 0, 0);
+      splat.position.set(0, 0, 0);
+      splat.opacity = 1;
+      await splat.initialized;
+      if (loadId !== this.launchpadSplatLoadId) {
+        splat.dispose?.();
+        return;
+      }
+      this.launchpadGroup.add(splat);
+      this.launchpadSplat = splat;
+      // Capture the splat's bbox in launchpadGroup-LOCAL space (i.e. after
+      // the Y-flip quaternion). Spark returns the bbox in the splat's own
+      // native frame — in our case Marble's Y-down export — so we apply the
+      // splat's local matrix to fold the flip in. The result is the ground
+      // / sky range we'll use to snap the rocket onto the actual pad
+      // surface inside the world (see `positionLaunchpadAtShipPad`).
+      this.launchpadBboxLocal = this.computeSplatLocalBbox(splat);
+      this.positionLaunchpadAtShipPad();
+      this.installLaunchpadDebug();
+    } catch (err) {
+      console.warn("[MissionScene] launchpad SPZ failed", err);
+    }
+  }
+
+  /**
+   * Compute the splat's bounding box in the launchpadGroup's LOCAL frame
+   * (post Y-flip). Returns null if the underlying centres-only bbox is
+   * empty or non-finite, which happens occasionally with very small splats
+   * or before the gaussian centres have been streamed in.
+   */
+  private computeSplatLocalBbox(splat: SplatMesh): THREE.Box3 | null {
+    try {
+      const native = splat.getBoundingBox?.(true);
+      if (!native || native.isEmpty() || !Number.isFinite(native.min.x)) {
+        return null;
+      }
+      const local = native.clone();
+      // The splat's local matrix (relative to launchpadGroup) carries the
+      // Y-flip we set above. `applyMatrix4` on Box3 handles non-axis-aligned
+      // input correctly — it transforms all 8 corners and refits the AABB.
+      splat.updateMatrix();
+      local.applyMatrix4(splat.matrix);
+      return local;
+    } catch (err) {
+      console.warn("[MissionScene] failed to read launchpad SPZ bbox", err);
+      return null;
+    }
+  }
+
+  /**
+   * Expose live tunables for the launchpad placement on `window.__missionLaunchpad`.
+   * Lets the user nudge the rocket over to the launch tower visible in the
+   * SPZ from the browser console, e.g.:
+   *
+   *   __missionLaunchpad.setOffset(1.6, 0, -8)
+   *   __missionLaunchpad.bbox()       // inspect the splat bounds
+   *   __missionLaunchpad.autoGround(false)  // pin Y manually
+   *
+   * Idempotent — re-installable if the dev page is hot-reloaded.
+   */
+  private installLaunchpadDebug(): void {
+    if (typeof window === "undefined") return;
+    const w = window as unknown as {
+      __missionLaunchpad?: Record<string, unknown>;
+    };
+    w.__missionLaunchpad = {
+      offset: this.launchpadRocketOffset,
+      autoGround: (enabled: boolean): void => {
+        this.launchpadAutoGround = !!enabled;
+        this.positionLaunchpadAtShipPad();
+      },
+      setOffset: (x: number, y: number, z: number): void => {
+        this.launchpadRocketOffset.set(x, y, z);
+        this.positionLaunchpadAtShipPad();
+      },
+      bbox: (): THREE.Box3 | null => this.launchpadBboxLocal,
+      group: this.launchpadGroup,
+      splat: this.launchpadSplat,
+      refresh: (): void => this.positionLaunchpadAtShipPad(),
+    };
+  }
+
+  private clearLaunchpadSplat(): void {
+    if (!this.launchpadSplat) return;
+    this.launchpadGroup.remove(this.launchpadSplat);
+    this.launchpadSplat.dispose?.();
+    this.launchpadSplat = null;
   }
 
   /** Legacy entry point — autopilot-only experience auto-ignites. */
@@ -701,6 +1038,7 @@ export class MissionScene implements SceneSlot {
     // Surface splat fade-in / out follows phase.
     this.updateSurfaceFade(deltaSec);
     this.updateDestinationAtmosphere(deltaSec);
+    this.updateLaunchpadFade(deltaSec);
 
     // Camera shake amplitude per phase (pre-cached `feel` to avoid double
     // call). Inside the cockpit (camera = pilot's head) we kill shake
@@ -858,6 +1196,7 @@ export class MissionScene implements SceneSlot {
     this.flightEnvironment.dispose();
     this.clearDestinationModel();
     this.clearSurfaceSplat();
+    this.clearLaunchpadSplat();
     this.scene.traverse((obj) => {
       const mesh = obj as THREE.Mesh;
       mesh.geometry?.dispose?.();
@@ -935,9 +1274,21 @@ export class MissionScene implements SceneSlot {
    * ============================================================ */
 
   toggleView(): void {
+    // While the launchpad SPZ owns the view, the chase / cockpit camera
+    // anchors don't make sense — chase sits 720 km away (chase distance is
+    // in game units, 1 unit = 100 km) and cockpit puts the player inside
+    // a rocket that's hidden by the launch tower geometry. Block cycling
+    // until the SPZ has faded enough that we're really in space again.
+    if (this.launchpadOpacity > LAUNCHPAD_VIEW_LOCK_OPACITY) return;
     this.rig.toggleView();
   }
   setView(mode: ViewMode, immediate = false): void {
+    if (
+      this.launchpadOpacity > LAUNCHPAD_VIEW_LOCK_OPACITY &&
+      mode !== "external"
+    ) {
+      return;
+    }
     this.rig.setView(mode, immediate);
   }
   get viewMode(): ViewMode {
@@ -1408,6 +1759,48 @@ export class MissionScene implements SceneSlot {
     if (this.surfaceSplat) {
       this.surfaceSplat.opacity = this.surfaceFade;
     }
+  }
+
+  /**
+   * Fade the launchpad SPZ as the ship climbs out of it. Runs every frame
+   * regardless of whether a splat is loaded so the group's visibility
+   * tracks the player's altitude (and we don't pay the splat's render cost
+   * once it's invisible). The fade is purely altitude-driven so a
+   * player who flies back down lands inside the SPZ scene again — useful
+   * if a future "abort" scenario wants to drop you on the pad.
+   *
+   * We also hand the Earth GLB's visibility off to the SPZ: while the
+   * launchpad dominates the view, the Earth body is hidden so the player
+   * doesn't see "Earth-from-orbit" sticking out of the back of a
+   * ground-level launch pad. The Earth GLB fades back in once the SPZ has
+   * faded out enough that hard-cutting it would be visible.
+   */
+  private updateLaunchpadFade(dt: number): void {
+    if (!this.launchpadSplat) {
+      this.launchpadGroup.visible = false;
+      this.earth.group.visible = true;
+      return;
+    }
+    const altE = this.phaseController.altitudeAboveEarth(this.dynamics.ship);
+    const span = Math.max(
+      0.001,
+      LAUNCHPAD_FADE_END_ALT - LAUNCHPAD_FADE_START_ALT,
+    );
+    const t = clamp01((altE - LAUNCHPAD_FADE_START_ALT) / span);
+    // smoothstep on (1-t) gives a soft fade with no abrupt edges at either
+    // end — looks more cinematic than a linear fade.
+    const targetOpacity = 1 - smoothstep(0, 1, t);
+    this.launchpadOpacity = damp(this.launchpadOpacity, targetOpacity, 4, dt);
+    this.launchpadSplat.opacity = this.launchpadOpacity;
+    this.launchpadGroup.visible = this.launchpadOpacity > 0.005;
+    if (this.launchpadOpacity < 0.005) {
+      this.rig.setExteriorVisualScale(1);
+    }
+
+    // Earth GLB takes over the view as the launchpad fades. Hard cutoff at
+    // half-fade so the swap happens during the period when the SPZ is still
+    // dense enough to occlude the Earth body anyway — no visible pop.
+    this.earth.group.visible = this.launchpadOpacity < 0.5;
   }
 
   private updateDestinationAtmosphere(dt: number): void {
