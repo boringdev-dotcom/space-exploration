@@ -26,6 +26,7 @@ import type { Planet } from "../data/planets";
 import {
   damp,
   dampVec3,
+  easeInOutCubic,
   easeOutCubic,
   noise1D,
   smoothstep,
@@ -141,14 +142,6 @@ const LAUNCHPAD_AUTO_GROUND_FROM_BBOX = true;
 const LAUNCHPAD_CAMERA_EYE_HEIGHT = 1;
 const LAUNCHPAD_FADE_START_ALT = 6;
 const LAUNCHPAD_FADE_END_ALT = 9;
-/**
- * Opacity threshold above which the camera is locked to external view at
- * the SPZ scan origin. Below this the SPZ has faded enough that normal
- * chase / cockpit cycling is safe again — the camera is no longer
- * "watching from the ground" anyway.
- */
-const LAUNCHPAD_VIEW_LOCK_OPACITY = 0.5;
-
 // Roll-stabilization references for the autopilot's look-at attitude.
 const _missionWorldUp = new THREE.Vector3(0, 1, 0);
 const _missionUpFallback = new THREE.Vector3(0, 0, -1);
@@ -377,6 +370,40 @@ export class MissionScene implements SceneSlot {
   private touchdownHandoffToken = 0;
   private landingBridgeElapsed = 0;
 
+  /**
+   * Cinematic skip-to-landing state machine. The player presses "Skip to
+   * Landing" and we run a multi-stage tween that flies the rocket toward
+   * the destination, descends to a hover, and crossfades the destination
+   * GLB into the surface SPZ before handing off to the surface scene —
+   * so the skip reads as a cinematic fast-forward rather than a teleport.
+   *
+   *   idle      — no skip in progress
+   *   approach  — rocket flies in from far above the destination
+   *   descent   — rocket descends from approach altitude to hover
+   *   settle    — rocket holds, surface SPZ fades in, GLB fades out
+   *   handoff   — onTouchdown fires; surface scene takes over
+   */
+  private cinematicLandingStage:
+    | "idle"
+    | "approach"
+    | "descent"
+    | "settle" = "idle";
+  private cinematicLandingTween: Tween | null = null;
+  /** Captured at the start of `skipToLanding` so each stage uses one stable radial. */
+  private readonly _cinematicLandingRadial = new THREE.Vector3(0, 1, 0);
+  /**
+   * Previous ship position recorded at the end of each cinematic frame.
+   * Used to compute a numerical velocity (`(pos - prevPos) / dt`) that gets
+   * written into `dynamics.ship.velocity`, which in turn drives every
+   * speed-sensitive effect in the scene — star streaks, atmospheric haze,
+   * sun-glare ghost, FOV speed-bias and engine-plume length. Without this
+   * the cinematic would render the rocket as a static prop with stars
+   * standing still in the background.
+   */
+  private readonly _cinematicPrevShipPos = new THREE.Vector3();
+  /** Last `raw` progress reported by the cinematic tween, in seconds. */
+  private _cinematicLastTimeSec = 0;
+
   // Reusable scratch.
   private readonly _scratchVec = new THREE.Vector3();
   private readonly _scratchShake = new THREE.Vector3();
@@ -558,6 +585,9 @@ export class MissionScene implements SceneSlot {
     this.touchdownTween = null;
     this.landingBridgeElapsed = 0;
     this.surfaceFade = 0;
+    this.cinematicLandingStage = "idle";
+    this.cinematicLandingTween?.cancel();
+    this.cinematicLandingTween = null;
     // Mission starts in MANUAL: the player flies the rocket from Earth
     // themselves. Engines are off, ship is parked on the pad pointed up.
     // Hit W to throttle up and lift off; arrows + A/D to steer; Tab to
@@ -817,51 +847,229 @@ export class MissionScene implements SceneSlot {
   }
 
   /**
-   * Skip the cruise + approach and jump the ship to a hover-down pose
-   * just above the destination, then let the touchdown autopilot settle
-   * it. Triggered by the in-flight "Skip to Landing" button.
+   * Skip the cruise + approach and play a cinematic ~12-second landing
+   * sequence: rocket flies in toward the destination from far above with
+   * engines burning and stars streaking past, retrograde-brakes through
+   * a side-camera shot of the descent, the destination GLB crossfades
+   * into the surface SPZ, then the surface scene takes over. Triggered
+   * by the in-flight "Skip to Landing" button.
+   *
+   * Stages run as chained Tweens (`cinematicLandingTween`). Each stage
+   * sets `dynamics.ship.velocity` (computed numerically from the per-frame
+   * position delta) so all the existing speed-sensitive effects fire — star
+   * streaks via `FlightEnvironment`, FOV bias via `setSpeedFovBias`,
+   * engine-plume length via `setThrottle`, sun-glare ghost streaking, and
+   * the per-phase camera shake amplitude. The phase controller's natural
+   * triggers (cruise → approach at APPROACH_RANGE, approach → touchdown
+   * at TOUCHDOWN_RANGE) fire as the ship crosses those thresholds, so the
+   * destination GLB and surface splat both stream in just-in-time.
    */
   skipToLanding(): void {
     if (this.phaseController.phase === "landed") return;
+    if (this.cinematicLandingStage !== "idle") return;
+
     const dest = this.phaseController.destinationCenter;
     const destRadius = this.phaseController.destinationRadius;
 
-    // Place the ship at the same settled hover point the touchdown
-    // autopilot converges to. Skip-to-landing is a test / convenience
-    // shortcut, so it should deterministically exercise the surface handoff
-    // instead of depending on a few seconds of damped descent timing.
-    const radial = new THREE.Vector3(0, 1, 0); // arbitrary stable radial
-    const pos = new THREE.Vector3()
-      .copy(radial)
-      .multiplyScalar(destRadius + 0.4)
-      .add(dest);
-    const quat = new THREE.Quaternion().setFromUnitVectors(
-      new THREE.Vector3(0, 0, -1),
-      radial,
-    );
-    this.dynamics.setPose(pos, quat);
+    // Stable radial — destination is at -Z DESTINATION_DISTANCE in mission
+    // space, but that's not a meaningful "up" direction for the body. Pick
+    // world +Y as the approach axis; the rocket flies "down" along it onto
+    // the planet's north pole. Keep this consistent across all stages so
+    // ship orientation never snaps mid-cinematic.
+    this._cinematicLandingRadial.set(0, 1, 0).normalize();
+
+    // Free the dynamics integrator from forces; we own ship.position for
+    // the duration of the cinematic. Velocity gets written every frame
+    // from the position delta so speed-driven effects render correctly.
     this.dynamics.frozen = true;
     this.dynamics.ship.velocity.set(0, 0, 0);
-
-    // Force the cinematic finished so the autopilot owns the descent
-    // without any opening-stage scaffolding interfering.
     this.openingStage = "cockpit";
-    this.rig.setView("chase", true);
+    this.touchdownTween?.cancel();
+    this.touchdownTween = null;
+    this.touchdownFiredHandoff = false;
 
-    // Pre-load the surface splat now so it's ready by the time we settle.
-    this.beginTouchdown();
+    // The launchpad mode bumped the chase rocket's exterior scale to 4 so
+    // it reads big from the SPZ scan-origin vantage. In deep space we want
+    // the cinematic chase camera's natural ~1-unit framing, so reset it
+    // before the rocket leaves the pad area.
+    this.rig.setExteriorVisualScale(1);
 
-    // Drop straight through touchdown into the landed phase for HUD/audio
-    // consistency, then let the same landing bridge run. This keeps the
-    // debug shortcut visually identical to a normal final descent.
-    this.phaseController.forcePhase("touchdown");
+    // Approach starts well outside APPROACH_RANGE so the phase machine
+    // genuinely transitions cruise → approach → touchdown as we close in,
+    // which in turn triggers `beginApproach` (loads destination GLB) and
+    // `beginTouchdown` (loads surface SPZ). Cleaner than re-implementing
+    // those load triggers here.
+    const approachStartDist = 420;
+    const approachEndDist = 36; // just outside TOUCHDOWN_RANGE
+    const hoverDist = destRadius + 0.4; // matches autopilot settled pose
+
+    const startPos = this._scratchVec
+      .copy(this._cinematicLandingRadial)
+      .multiplyScalar(approachStartDist)
+      .add(dest);
+    const startQuat = new THREE.Quaternion().setFromUnitVectors(
+      new THREE.Vector3(0, 0, -1),
+      // Nose toward the destination so the rocket appears to fly in.
+      dest.clone().sub(startPos).normalize(),
+    );
+    this.dynamics.setPose(startPos, startQuat);
+    this._cinematicPrevShipPos.copy(startPos);
+    this._cinematicLastTimeSec = 0;
+
+    // Cinematic "movie camera" — external view trailing back-and-up of
+    // the rocket. dropExternalAnchor is re-issued each tween frame as the
+    // ship moves so the camera tracks rather than going stale.
+    this.rig.setView("external", true);
+    this.rig.dropExternalAnchor(18, 6);
+    // Light up the FOV briefly to sell the engine ignition kick.
+    this.rig.pulseBoostFov(8, 0.6);
+
+    this.startCinematicApproach(approachStartDist, approachEndDist, hoverDist);
+  }
+
+  /**
+   * Numerically write the rocket's velocity from this-frame's position
+   * delta. The Tween callback gets `(eased, raw)` — we convert `raw` into
+   * absolute seconds and diff against the last frame to find dt. Velocity
+   * feeds every speed-driven effect: star streaks, FOV bias, plume,
+   * sun-glare ghost. Without this the cinematic would feel static even
+   * though the rocket is technically "moving" (position-only).
+   */
+  private updateCinematicVelocity(rawProgress: number, durationSec: number): void {
+    const currentT = rawProgress * durationSec;
+    const dt = Math.max(0.0001, currentT - this._cinematicLastTimeSec);
+    this._cinematicLastTimeSec = currentT;
+    this._scratchVec
+      .copy(this.dynamics.ship.position)
+      .sub(this._cinematicPrevShipPos)
+      .divideScalar(dt);
+    this.dynamics.ship.velocity.copy(this._scratchVec);
+    this._cinematicPrevShipPos.copy(this.dynamics.ship.position);
+  }
+
+  private startCinematicApproach(
+    approachStartDist: number,
+    approachEndDist: number,
+    hoverDist: number,
+  ): void {
+    const dest = this.phaseController.destinationCenter;
+    const radial = this._cinematicLandingRadial;
+    const fwdLocal = new THREE.Vector3(0, 0, -1);
+    const desiredDir = new THREE.Vector3();
+    const tmp = new THREE.Vector3();
+    this.cinematicLandingStage = "approach";
+    this._cinematicLastTimeSec = 0;
+    const duration = 5.0;
+
+    this.cinematicLandingTween = new Tween(
+      duration,
+      // easeOutCubic — the rocket front-loads its motion so the player
+      // sees "BAM, we're flying" early, then settles toward the planet.
+      // easeInOutCubic felt sluggish; easeOutCubic plays as a confident
+      // engine kick.
+      easeOutCubic,
+      (eased, raw) => {
+        const dist =
+          approachStartDist + (approachEndDist - approachStartDist) * eased;
+        tmp.copy(radial).multiplyScalar(dist).add(dest);
+        this.dynamics.ship.position.copy(tmp);
+        // Re-aim ship toward dest each frame so the rocket's nose stays
+        // pointed at the planet as it closes in.
+        desiredDir.copy(dest).sub(tmp).normalize();
+        this.dynamics.ship.quaternion.setFromUnitVectors(fwdLocal, desiredDir);
+        // Engines burning at 1.6× — the chase camera sees a long plume
+        // and the post-fx bloom kicks up. Drives plume length, sun-glare
+        // ghost intensity, camera shake amplitude.
+        this.autopilotThrottle = 1.6;
+        // Compute velocity from position delta so the FlightEnvironment
+        // renders star streaks + atmospheric haze and the FOV widens.
+        this.updateCinematicVelocity(raw, duration);
+        // Pull the chase anchor in slightly as we get closer for a
+        // "diving" sensation rather than a flat constant-distance trail.
+        this.rig.dropExternalAnchor(18 - eased * 6, 6 - eased * 1.6);
+      },
+      () => {
+        this.startCinematicDescent(approachEndDist, hoverDist);
+      },
+    );
+    this.cinematicLandingTween.start();
+  }
+
+  private startCinematicDescent(
+    descentStartDist: number,
+    hoverDist: number,
+  ): void {
+    const dest = this.phaseController.destinationCenter;
+    const radial = this._cinematicLandingRadial;
+    const fwdLocal = new THREE.Vector3(0, 0, -1);
+    const tmp = new THREE.Vector3();
+    const upQuat = new THREE.Quaternion();
+    const dirQuat = new THREE.Quaternion();
+    this.cinematicLandingStage = "descent";
+    this._cinematicLastTimeSec = 0;
+    const duration = 4.0;
+
+    // Stage-transition FOV punch — sells the moment the rocket finishes
+    // its long burn and flips around for the retrograde brake.
+    this.rig.pulseBoostFov(6, 0.5);
+
+    this.cinematicLandingTween = new Tween(
+      duration,
+      // easeInOutCubic for the retrograde — the rocket decelerates hard
+      // mid-stage (most braking happens here, where plume should fire
+      // brightest) and feathers out to a hover at the end.
+      easeInOutCubic,
+      (eased, raw) => {
+        const dist = descentStartDist + (hoverDist - descentStartDist) * eased;
+        tmp.copy(radial).multiplyScalar(dist).add(dest);
+        this.dynamics.ship.position.copy(tmp);
+        // Rotate ship to point its nose along the radial (away from dest)
+        // — the autopilot's settled landing pose. Slerp from the previous
+        // "nose-toward-dest" attitude to this "nose-up-from-surface" one.
+        upQuat.setFromUnitVectors(fwdLocal, radial);
+        dirQuat.setFromUnitVectors(
+          fwdLocal,
+          this._scratchVec.copy(dest).sub(tmp).normalize(),
+        );
+        this.dynamics.ship.quaternion.copy(dirQuat).slerp(upQuat, eased);
+        // Throttle ramps DOWN as we settle — engines fire hardest at the
+        // start of the brake (when we have the most velocity to kill),
+        // taper off as we approach hover. Bell-curved peak around the
+        // mid-point of the descent: 1.8 → 1.2.
+        this.autopilotThrottle = 1.8 - eased * 0.6;
+        this.updateCinematicVelocity(raw, duration);
+
+        // Wide cinematic side-camera shot: the camera sits 90→75 units
+        // perpendicular to the line from the planet to the ship, well
+        // outside the planet's bounding sphere, so the entire body
+        // stays in frame as the rocket descends. With Luna's 18-unit
+        // radius the moon subtends roughly 21°→24° vertically — a
+        // comfortable two-thirds of the 60° FOV. Without this wider
+        // pullback the camera ends up so close to the surface that the
+        // body fills the view and you can't tell what you're landing on.
+        const sideOffset = 90 - eased * 15;
+        const heightOffset = 22 - eased * 5;
+        this.placeCinematicSideCamera(sideOffset, heightOffset);
+      },
+      () => {
+        this.startCinematicSettle();
+      },
+    );
+    this.cinematicLandingTween.start();
+  }
+
+  private startCinematicSettle(): void {
+    this.cinematicLandingStage = "settle";
+    // Throttle a low touchdown thrust so the plume softens but doesn't
+    // vanish — the existing landing-bridge camera tween will take it from
+    // here. The phase flip schedules `beginLandedHandoff`, which dollies
+    // the camera in for the final beat and then fires `onTouchdown`.
+    this.autopilotThrottle = 0.3;
+    this.dynamics.ship.velocity.multiplyScalar(0.1);
+    // FOV punch on landing contact — feels like the wheels finally bite.
+    this.rig.pulseBoostFov(4, 0.4);
     this.phaseController.forcePhase("landed");
-    const token = this.touchdownHandoffToken;
-    window.setTimeout(() => {
-      if (token === this.touchdownHandoffToken && this.phaseController.phase === "landed") {
-        this.fireTouchdownHandoff(token);
-      }
-    }, (LANDING_BRIDGE_SEC + 0.5) * 1000);
+    this.cinematicLandingTween = null;
   }
 
   /**
@@ -1134,6 +1342,13 @@ export class MissionScene implements SceneSlot {
     // Rig follows the (just-updated) ship.
     this.rig.followShip(this.dynamics.ship);
 
+    // Cinematic skip-to-landing tween — drives ship.position through
+    // approach → descent → settle stages. Run BEFORE the touchdown tween
+    // so the landing-bridge camera tween fires last.
+    if (this.cinematicLandingTween) {
+      this.cinematicLandingTween.update(deltaSec);
+    }
+
     // Touchdown camera tween — handoff to walking happens on completion.
     if (this.touchdownTween) {
       this.touchdownTween.update(deltaSec);
@@ -1274,21 +1489,14 @@ export class MissionScene implements SceneSlot {
    * ============================================================ */
 
   toggleView(): void {
-    // While the launchpad SPZ owns the view, the chase / cockpit camera
-    // anchors don't make sense — chase sits 720 km away (chase distance is
-    // in game units, 1 unit = 100 km) and cockpit puts the player inside
-    // a rocket that's hidden by the launch tower geometry. Block cycling
-    // until the SPZ has faded enough that we're really in space again.
-    if (this.launchpadOpacity > LAUNCHPAD_VIEW_LOCK_OPACITY) return;
+    // Cockpit / chase / external all work while the launchpad SPZ is
+    // visible — the player can fly the rocket from the pilot's chair, watch
+    // it from the back-and-up chase camera, or stay at the SPZ scan-origin
+    // for the cinematic ground-observer shot. Cycling between them is
+    // unrestricted.
     this.rig.toggleView();
   }
   setView(mode: ViewMode, immediate = false): void {
-    if (
-      this.launchpadOpacity > LAUNCHPAD_VIEW_LOCK_OPACITY &&
-      mode !== "external"
-    ) {
-      return;
-    }
     this.rig.setView(mode, immediate);
   }
   get viewMode(): ViewMode {
@@ -1661,11 +1869,61 @@ export class MissionScene implements SceneSlot {
    * ============================================================ */
 
   private beginApproach(): void {
+    // Subtle FOV punch — sells the moment the destination grows from a
+    // dot to a real body. Works whether the player is in cockpit, chase
+    // or external view; the rig clamps the bias against its profile FOV.
+    this.rig.pulseBoostFov(4, 0.6);
     if (!this.currentPlanet?.modelUrl) return;
     void this.loadDestinationModel(
       this.currentPlanet.modelUrl,
       ++this.destinationModelLoadId,
     );
+  }
+
+  /**
+   * Place the external camera at a cinematic "side" anchor — perpendicular
+   * to the line from the destination to the ship — so the rocket sweeps
+   * past the camera as it descends. Used both by the natural-flow
+   * `beginTouchdown` and by the skip-to-landing descent stage so any
+   * landing reads as the same Hollywood arrival shot.
+   *
+   *   sideOffset    — distance perpendicular to the radial (units)
+   *   heightOffset  — distance above the planet's surface along the
+   *                   radial (units); negative would clip into terrain
+   *
+   * Returns the world-space camera position it set so the caller can
+   * decide whether to update it on the next frame too.
+   */
+  private placeCinematicSideCamera(
+    sideOffset: number,
+    heightOffset: number,
+  ): void {
+    const dest = this.phaseController.destinationCenter;
+    const ship = this.dynamics.ship;
+    // Radial = unit vector from destination to ship. If the ship is
+    // exactly at the destination centre (degenerate), fall back to world
+    // +Y so we always have a stable anchor.
+    const radial = this._scratchVec.copy(ship.position).sub(dest);
+    if (radial.lengthSq() < 1e-6) {
+      radial.set(0, 1, 0);
+    } else {
+      radial.normalize();
+    }
+    // Side axis = a unit vector perpendicular to the radial. cross with
+    // world up handles the common case; if the radial is co-linear with
+    // world up (player approaching the pole), substitute world +X.
+    const sideAxis = _scratchTouchTarget.crossVectors(radial, _missionWorldUp);
+    if (sideAxis.lengthSq() < 1e-4) {
+      sideAxis.set(1, 0, 0);
+    } else {
+      sideAxis.normalize();
+    }
+    const eye = _scratchTargetDir
+      .copy(sideAxis)
+      .multiplyScalar(sideOffset)
+      .add(_scratchRadialN.copy(radial).multiplyScalar(this.phaseController.destinationRadius + heightOffset))
+      .add(dest);
+    this.rig.setExternalAnchorWorld(eye);
   }
 
   private async loadDestinationModel(
@@ -1700,7 +1958,14 @@ export class MissionScene implements SceneSlot {
     this.landingBridgeElapsed = 0;
     this.rig.followShip(this.dynamics.ship);
     this.rig.setView("external");
-    this.rig.dropExternalAnchor(8.5, 3.2);
+    // Cinematic side shot — camera plants well outside the planet's
+    // bounding sphere so the entire body stays in frame while the
+    // rocket descends. Same wide framing skipToLanding's descent uses,
+    // so the natural-flow landing reads as the same Hollywood arrival
+    // angle whether you skipped or flew there manually.
+    this.placeCinematicSideCamera(80, 20);
+    // FOV punch on the touchdown moment — feels like braking.
+    this.rig.pulseBoostFov(6, 0.6);
 
     if (!this.spark || !this.currentPlanet) return;
     // Skip the Spark public sample splats seeded by `npm run worlds:mock`
@@ -1758,6 +2023,52 @@ export class MissionScene implements SceneSlot {
     this.surfaceFade = damp(this.surfaceFade, target, 0.95, dt);
     if (this.surfaceSplat) {
       this.surfaceSplat.opacity = this.surfaceFade;
+    }
+    // GLB → SPZ crossfade. While the surface splat is fading in, fade the
+    // destination GLB out the same amount so the player sees a smooth
+    // dissolve from the orbital body to the captured surface world rather
+    // than a hard cut. We only do this when a real SPZ is loading (no
+    // crossfade target → keep the GLB at full opacity so the planet still
+    // reads).
+    if (this.surfaceSplat) {
+      this.setDestinationVisualOpacity(1 - this.surfaceFade);
+    } else {
+      this.setDestinationVisualOpacity(1);
+    }
+  }
+
+  /**
+   * Drive the destination GLB and placeholder sphere materials to the
+   * given opacity, marking them transparent only while they're not fully
+   * opaque (avoids the cost of always sorting them and the depth-write
+   * artefacts that come with `transparent: true` against terrain). Used
+   * by `updateSurfaceFade` to crossfade the destination body into the
+   * surface SPZ during touchdown.
+   */
+  private setDestinationVisualOpacity(opacity: number): void {
+    const apply = (mat: THREE.Material): void => {
+      const m = mat as THREE.Material & { opacity: number };
+      const transparent = opacity < 0.999;
+      m.transparent = transparent;
+      m.opacity = opacity;
+      // Disable depth writes during the dissolve so the SPZ behind the
+      // GLB shows through; restore them once the GLB is fully visible
+      // again so the body occludes correctly during cruise.
+      m.depthWrite = !transparent;
+      m.needsUpdate = true;
+    };
+    if (this.destinationModel) {
+      this.destinationModel.traverse((obj) => {
+        const mesh = obj as THREE.Mesh;
+        if (!mesh.isMesh) return;
+        const mat = mesh.material as THREE.Material | THREE.Material[];
+        if (Array.isArray(mat)) mat.forEach(apply);
+        else apply(mat);
+      });
+    }
+    if (this.destinationMesh.visible) {
+      const mat = this.destinationMesh.material as THREE.Material;
+      apply(mat);
     }
   }
 
@@ -1859,7 +2170,21 @@ export class MissionScene implements SceneSlot {
     this.dynamics.frozen = true;
     this.rig.followShip(this.dynamics.ship);
     this.rig.setView("external");
-    this.rig.dropExternalAnchor(9.5, 3.4);
+    // FOV punch on touchdown contact — feels like the wheels finally
+    // bite. Combined with the dolly tween below this is the "we made
+    // it" beat.
+    this.rig.pulseBoostFov(5, 0.7);
+    // Cinematic settle camera — the landing bridge tween dollies the
+    // anchor in from the wide "whole planet visible" shot to a closer
+    // (but still planet-framing) close-up. Matches the descent stage's
+    // ending side offset so the cut is invisible, then cinches in
+    // without ever zooming so close that the body no longer reads as
+    // a planet.
+    const startSide = 75;
+    const endSide = 50;
+    const startHeight = 17;
+    const endHeight = 12;
+    this.placeCinematicSideCamera(startSide, startHeight);
 
     // Hold a brief exterior settle so the surface handoff happens under a
     // deliberate landing beat, not immediately after the phase flips.
@@ -1870,7 +2195,11 @@ export class MissionScene implements SceneSlot {
       easeOutCubic,
       (eased) => {
         this.landingBridgeElapsed = eased * LANDING_BRIDGE_SEC;
-        this.rig.dropExternalAnchor(9.5 - eased * 1.8, 3.4 - eased * 0.8);
+        // Smoothly dolly the side camera in — matches the close-up
+        // beat at the end of a real landing reel.
+        const sideOffset = startSide + (endSide - startSide) * eased;
+        const heightOffset = startHeight + (endHeight - startHeight) * eased;
+        this.placeCinematicSideCamera(sideOffset, heightOffset);
       },
       () => {
         this.landingBridgeElapsed = LANDING_BRIDGE_SEC;
@@ -1901,6 +2230,12 @@ export class MissionScene implements SceneSlot {
   private fireTouchdownHandoff(token: number): void {
     if (token !== this.touchdownHandoffToken) return;
     const ship = this.dynamics.ship;
+    // Reset the skip-to-landing state machine so subsequent cruise →
+    // approach → landed cycles can run their own cinematic if the player
+    // hits "Skip to Landing" again.
+    this.cinematicLandingStage = "idle";
+    this.cinematicLandingTween?.cancel();
+    this.cinematicLandingTween = null;
     this.events.onTouchdown?.({
       spawnPose: {
         position: ship.position.clone(),
