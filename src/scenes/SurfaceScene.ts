@@ -2744,112 +2744,333 @@ export class SurfaceScene implements SceneSlot {
     this.clearRobotaxiTracks();
     if (this.currentPlanetId !== "mars") return;
 
-    const roadMat = new THREE.MeshBasicMaterial({
-      color: 0x7b2d14,
-      transparent: true,
-      opacity: 0.13,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
-    const trackMat = new THREE.LineBasicMaterial({
-      color: 0x2b0d05,
-      transparent: true,
-      opacity: 0.42,
-      depthWrite: false,
-    });
-    const dustMat = new THREE.MeshBasicMaterial({
-      color: 0x5e2412,
-      transparent: true,
-      opacity: 0.18,
-      depthWrite: false,
-      side: THREE.DoubleSide,
-    });
+    // ---- Single continuous ribbon road --------------------------------
+    // Walk the racetrack at N samples and emit a triangle strip 5.4 m
+    // wide. Three colour bands (inner / mid / edge) blend the rust road
+    // into the Mars dust. This replaces the previous 40 scattered
+    // circles which read as random patches at chase-camera distance.
+    const N = 384;
+    const roadHalfWidth = 2.7;
+    const innerHalfWidth = 0.55;
+    const verts = new Float32Array(N * 2 * 3);
+    const cols = new Float32Array(N * 2 * 3);
+    const indices: number[] = [];
 
-    // A soft drivable dust lane under the full tour loop. This makes the
-    // robotaxi feel like it has a floor/road instead of floating over the
-    // splat, but stays translucent enough to blend with real SPZ terrain.
-    const laneGeom = new THREE.CircleGeometry(1, 32);
-    for (let i = 0; i < 40; i++) {
-      const phase = i / 40;
-      const p = this.sampleRobotaxiTourPoint(phase, this._taxiScratchA).clone();
+    const innerCol = new THREE.Color(0x381008);  // packed dust trail
+    const midCol = new THREE.Color(0x6c2f17);    // mid lane
+    const edgeCol = new THREE.Color(0x3a160a);   // outer shoulder fade
+
+    // Precompute centerline samples + tangents so we can also place
+    // sleepers, ruts, and dust streaks on the same loop.
+    const centerSamples: Array<{ x: number; z: number; sx: number; sz: number; yaw: number }> = [];
+    for (let i = 0; i < N; i++) {
+      const phase = i / N;
+      const p = this.sampleRobotaxiTourPoint(phase, this._taxiScratchA);
       const ahead = this.sampleRobotaxiTourPoint(
-        (phase + 0.006) % 1,
+        (phase + 1 / N) % 1,
         this._taxiScratchB,
       );
       const tx = ahead.x - p.x;
       const tz = ahead.z - p.z;
+      const tlen = Math.max(1e-4, Math.hypot(tx, tz));
+      const sx = -tz / tlen; // perpendicular (left side)
+      const sz = tx / tlen;
       const yaw = Math.atan2(tx, -tz);
-      const lane = new THREE.Mesh(laneGeom, roadMat);
-      lane.position.set(p.x, SURFACE_DECAL_Y - 0.006, p.z);
-      lane.rotation.x = -Math.PI / 2;
-      lane.rotation.z = -yaw;
-      lane.scale.set(4.1, 1.45, 1);
-      this.robotaxiTrackGroup.add(lane);
+      centerSamples.push({ x: p.x, z: p.z, sx, sz, yaw });
     }
 
-    // Curbside pickup/dropoff patch where the truck comes to rest.
-    const pad = new THREE.Mesh(new THREE.CircleGeometry(4.4, 56), roadMat);
-    pad.position.set(this._robotaxiArrivalPos.x, SURFACE_DECAL_Y - 0.004, this._robotaxiArrivalPos.z);
-    pad.rotation.x = -Math.PI / 2;
-    pad.scale.set(1.35, 0.72, 1);
-    this.robotaxiTrackGroup.add(pad);
+    // 3-band ribbon: emit 4 vertices per sample (left edge, left mid,
+    // right mid, right edge). Build two strips: edge→mid and mid→edge,
+    // and one inner strip mid→mid through the colour-blend zone.
+    // Simpler approach: 2 vertices per sample with vertex colour blended
+    // by lateral distance, sampled at +/- roadHalfWidth. We then add a
+    // second darker centre strip (inner) on top for visual punch.
+    for (let i = 0; i < N; i++) {
+      const s = centerSamples[i];
+      const lx = s.x + s.sx * roadHalfWidth;
+      const lz = s.z + s.sz * roadHalfWidth;
+      const rx = s.x - s.sx * roadHalfWidth;
+      const rz = s.z - s.sz * roadHalfWidth;
+      const off = i * 6;
+      verts[off + 0] = lx;
+      verts[off + 1] = SURFACE_DECAL_Y - 0.004;
+      verts[off + 2] = lz;
+      verts[off + 3] = rx;
+      verts[off + 4] = SURFACE_DECAL_Y - 0.004;
+      verts[off + 5] = rz;
+      // Vertex colour mix: edge-rust along both rims, with a tiny
+      // hash-noise band so the road doesn't look stamp-perfect.
+      const noise = 0.92 + 0.08 * Math.sin(i * 0.37 + 1.13);
+      const colorL = edgeCol.clone().lerp(midCol, 0.35).multiplyScalar(noise);
+      const colorR = edgeCol.clone().lerp(midCol, 0.35).multiplyScalar(noise);
+      cols[off + 0] = colorL.r;
+      cols[off + 1] = colorL.g;
+      cols[off + 2] = colorL.b;
+      cols[off + 3] = colorR.r;
+      cols[off + 4] = colorR.g;
+      cols[off + 5] = colorR.b;
+    }
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      const a = i * 2;
+      const b = i * 2 + 1;
+      const c = j * 2;
+      const d = j * 2 + 1;
+      // Two tris per quad. Vertex order chosen for a +Y facing normal.
+      indices.push(a, b, c, c, b, d);
+    }
+    const roadGeom = new THREE.BufferGeometry();
+    roadGeom.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+    roadGeom.setAttribute("color", new THREE.BufferAttribute(cols, 3));
+    roadGeom.setIndex(indices);
+    roadGeom.computeVertexNormals();
+    const roadMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+      side: THREE.DoubleSide,
+    });
+    const roadMesh = new THREE.Mesh(roadGeom, roadMat);
+    roadMesh.name = "surface.robotaxi.road";
+    this.robotaxiTrackGroup.add(roadMesh);
 
-    const pickupDust = new THREE.Mesh(new THREE.CircleGeometry(2.8, 48), dustMat);
-    pickupDust.position.set(center.x, SURFACE_DECAL_Y - 0.002, center.z);
+    // ---- Inner packed-dust strip ---------------------------------
+    // Darker centre band 1.1 m wide, sitting just above the road for a
+    // packed-dust track look.
+    const innerVerts = new Float32Array(N * 2 * 3);
+    const innerCols = new Float32Array(N * 2 * 3);
+    const innerIdx: number[] = [];
+    for (let i = 0; i < N; i++) {
+      const s = centerSamples[i];
+      const lx = s.x + s.sx * innerHalfWidth;
+      const lz = s.z + s.sz * innerHalfWidth;
+      const rx = s.x - s.sx * innerHalfWidth;
+      const rz = s.z - s.sz * innerHalfWidth;
+      const off = i * 6;
+      innerVerts[off + 0] = lx;
+      innerVerts[off + 1] = SURFACE_DECAL_Y - 0.0015;
+      innerVerts[off + 2] = lz;
+      innerVerts[off + 3] = rx;
+      innerVerts[off + 4] = SURFACE_DECAL_Y - 0.0015;
+      innerVerts[off + 5] = rz;
+      const wear = 0.85 + 0.15 * Math.sin(i * 0.21 + 0.7);
+      const c = innerCol.clone().multiplyScalar(wear);
+      innerCols[off + 0] = c.r;
+      innerCols[off + 1] = c.g;
+      innerCols[off + 2] = c.b;
+      innerCols[off + 3] = c.r;
+      innerCols[off + 4] = c.g;
+      innerCols[off + 5] = c.b;
+    }
+    for (let i = 0; i < N; i++) {
+      const j = (i + 1) % N;
+      const a = i * 2;
+      const b = i * 2 + 1;
+      const c = j * 2;
+      const d = j * 2 + 1;
+      innerIdx.push(a, b, c, c, b, d);
+    }
+    const innerGeom = new THREE.BufferGeometry();
+    innerGeom.setAttribute("position", new THREE.BufferAttribute(innerVerts, 3));
+    innerGeom.setAttribute("color", new THREE.BufferAttribute(innerCols, 3));
+    innerGeom.setIndex(innerIdx);
+    innerGeom.computeVertexNormals();
+    const innerMat = new THREE.MeshBasicMaterial({
+      vertexColors: true,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+      side: THREE.DoubleSide,
+    });
+    const innerMesh = new THREE.Mesh(innerGeom, innerMat);
+    innerMesh.name = "surface.robotaxi.roadInner";
+    this.robotaxiTrackGroup.add(innerMesh);
+
+    // ---- Wheel ruts: 2 thin ribbons offset by the truck's track ----
+    const rutHalfWidth = 0.22;
+    const trackOffset = 0.85; // matches the physics wheelTrack
+    [-trackOffset, trackOffset].forEach((wheelOffset) => {
+      const rVerts = new Float32Array(N * 2 * 3);
+      const rCols = new Float32Array(N * 2 * 3);
+      const rIdx: number[] = [];
+      for (let i = 0; i < N; i++) {
+        const s = centerSamples[i];
+        const cx = s.x + s.sx * wheelOffset;
+        const cz = s.z + s.sz * wheelOffset;
+        const lx = cx + s.sx * rutHalfWidth;
+        const lz = cz + s.sz * rutHalfWidth;
+        const rx = cx - s.sx * rutHalfWidth;
+        const rz = cz - s.sz * rutHalfWidth;
+        const off = i * 6;
+        rVerts[off + 0] = lx;
+        rVerts[off + 1] = SURFACE_DECAL_Y + 0.001;
+        rVerts[off + 2] = lz;
+        rVerts[off + 3] = rx;
+        rVerts[off + 4] = SURFACE_DECAL_Y + 0.001;
+        rVerts[off + 5] = rz;
+        for (let k = 0; k < 6; k++) rCols[off + k] = 0.07; // very dark
+      }
+      for (let i = 0; i < N; i++) {
+        const j = (i + 1) % N;
+        const a = i * 2;
+        const b = i * 2 + 1;
+        const c = j * 2;
+        const d = j * 2 + 1;
+        rIdx.push(a, b, c, c, b, d);
+      }
+      const rGeom = new THREE.BufferGeometry();
+      rGeom.setAttribute("position", new THREE.BufferAttribute(rVerts, 3));
+      rGeom.setAttribute("color", new THREE.BufferAttribute(rCols, 3));
+      rGeom.setIndex(rIdx);
+      rGeom.computeVertexNormals();
+      const rMat = new THREE.MeshBasicMaterial({
+        vertexColors: true,
+        transparent: true,
+        opacity: 0.55,
+        depthWrite: false,
+        polygonOffset: true,
+        polygonOffsetFactor: -3,
+        polygonOffsetUnits: -3,
+        side: THREE.DoubleSide,
+      });
+      const rMesh = new THREE.Mesh(rGeom, rMat);
+      rMesh.name = `surface.robotaxi.rut.${wheelOffset > 0 ? "L" : "R"}`;
+      this.robotaxiTrackGroup.add(rMesh);
+    });
+
+    // ---- Lane stripes (dashed centre marker) ----------------------
+    const stripeMat = new THREE.MeshBasicMaterial({
+      color: 0xd6b97a,
+      transparent: true,
+      opacity: 0.55,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const stripeGeom = new THREE.PlaneGeometry(0.28, 1.1);
+    const stripeCount = 24;
+    for (let i = 0; i < stripeCount; i++) {
+      const idx = Math.floor((i / stripeCount) * N);
+      const s = centerSamples[idx];
+      const stripe = new THREE.Mesh(stripeGeom, stripeMat);
+      stripe.position.set(s.x, SURFACE_DECAL_Y + 0.002, s.z);
+      stripe.rotation.x = -Math.PI / 2;
+      // Plane's long axis is +Y locally; after the X rotation that maps
+      // to the world +Z direction. Rotate around the new Z to align with
+      // the road tangent.
+      stripe.rotation.z = -s.yaw;
+      this.robotaxiTrackGroup.add(stripe);
+    }
+
+    // ---- Curbside pickup pad -------------------------------------
+    // A clean rectangular tarmac with two glowing yellow stripes flanking
+    // the truck. Aligned to the arrival heading so the long axis matches
+    // the truck's nose-tail direction.
+    const padGroup = new THREE.Group();
+    padGroup.name = "surface.robotaxi.curbPad";
+    padGroup.position.set(
+      this._robotaxiArrivalPos.x,
+      SURFACE_DECAL_Y + 0.005,
+      this._robotaxiArrivalPos.z,
+    );
+    padGroup.rotation.y = this.robotaxiArrivalHeading;
+    const tarmacMat = new THREE.MeshBasicMaterial({
+      color: 0x2a2922,
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4,
+    });
+    const tarmac = new THREE.Mesh(new THREE.PlaneGeometry(7, 3.2), tarmacMat);
+    tarmac.rotation.x = -Math.PI / 2;
+    padGroup.add(tarmac);
+    const curbStripeMat = new THREE.MeshBasicMaterial({
+      color: 0xf2c54a,
+      transparent: true,
+      opacity: 0.92,
+      depthWrite: false,
+    });
+    [-1.45, 1.45].forEach((side) => {
+      const stripe = new THREE.Mesh(
+        new THREE.PlaneGeometry(6.4, 0.18),
+        curbStripeMat,
+      );
+      stripe.rotation.x = -Math.PI / 2;
+      stripe.position.set(0, 0.002, side);
+      padGroup.add(stripe);
+    });
+    // Small "TAXI" stencil-look pair of bars at the head of the pad.
+    const stencilMat = new THREE.MeshBasicMaterial({
+      color: 0xefe1b8,
+      transparent: true,
+      opacity: 0.62,
+      depthWrite: false,
+    });
+    [-0.55, 0.55].forEach((x) => {
+      const bar = new THREE.Mesh(
+        new THREE.PlaneGeometry(0.18, 1.4),
+        stencilMat,
+      );
+      bar.rotation.x = -Math.PI / 2;
+      bar.position.set(-2.6, 0.0015, x);
+      padGroup.add(bar);
+    });
+    this.robotaxiTrackGroup.add(padGroup);
+
+    // ---- Pickup-spot dust ring (centred on the player) -----------
+    const pickupDustMat = new THREE.MeshBasicMaterial({
+      color: 0x5e2412,
+      transparent: true,
+      opacity: 0.22,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -2,
+      polygonOffsetUnits: -2,
+    });
+    const pickupDust = new THREE.Mesh(
+      new THREE.CircleGeometry(3.2, 48),
+      pickupDustMat,
+    );
+    pickupDust.position.set(center.x, SURFACE_DECAL_Y, center.z);
     pickupDust.rotation.x = -Math.PI / 2;
     pickupDust.scale.set(1.25, 0.5, 1);
     this.robotaxiTrackGroup.add(pickupDust);
 
-    // Two wheel ruts offset to either side of the centerline along the
-    // racetrack path. We trace the same rounded-rectangle the truck
-    // drives so the tracks line up with where it actually goes.
-    const N = 192;
-    [-0.82, 0.82].forEach((wheelOffset) => {
-      const points: THREE.Vector3[] = [];
-      for (let i = 0; i < N; i++) {
-        const phase = i / N;
-        const aheadPhase = (phase + 0.004) % 1;
-        const p = this.sampleRobotaxiTourPoint(phase, this._taxiScratchA).clone();
-        const ahead = this.sampleRobotaxiTourPoint(aheadPhase, this._taxiScratchB);
-        const tx = ahead.x - p.x;
-        const tz = ahead.z - p.z;
-        const tlen = Math.max(1e-4, Math.hypot(tx, tz));
-        // perpendicular to the tangent, in the ground plane
-        const sx = -tz / tlen;
-        const sz = tx / tlen;
-        points.push(
-          new THREE.Vector3(
-            p.x + sx * wheelOffset,
-            SURFACE_DECAL_Y + 0.006,
-            p.z + sz * wheelOffset,
-          ),
-        );
-      }
-      const geom = new THREE.BufferGeometry().setFromPoints(points);
-      this.robotaxiTrackGroup.add(new THREE.LineLoop(geom, trackMat));
+    // ---- Corner dust streaks (only at high-curvature segments) ----
+    const cornerDustMat = new THREE.MeshBasicMaterial({
+      color: 0x5e2412,
+      transparent: true,
+      opacity: 0.24,
+      depthWrite: false,
+      side: THREE.DoubleSide,
     });
-
-    // Dust streaks tangent-aligned along the loop.
-    const dustGeom = new THREE.CircleGeometry(1, 24);
-    for (let i = 0; i < 22; i++) {
-      const phase = i / 22;
-      const p = this.sampleRobotaxiTourPoint(phase, this._taxiScratchA).clone();
-      const ahead = this.sampleRobotaxiTourPoint(
-        (phase + 0.004) % 1,
-        this._taxiScratchB,
-      );
-      const tx = ahead.x - p.x;
-      const tz = ahead.z - p.z;
-      const yaw = Math.atan2(tx, -tz);
-      const dust = new THREE.Mesh(dustGeom, dustMat);
-      dust.position.set(p.x, SURFACE_DECAL_Y, p.z);
+    const cornerDustGeom = new THREE.CircleGeometry(1, 28);
+    const dustSampleCount = 32;
+    let placed = 0;
+    for (let i = 0; i < dustSampleCount && placed < 8; i++) {
+      const phase = i / dustSampleCount;
+      const curvature = this.estimateTourCurvature(phase);
+      if (curvature < 0.55) continue;
+      const s = centerSamples[Math.floor(phase * N)];
+      const dust = new THREE.Mesh(cornerDustGeom, cornerDustMat);
+      dust.position.set(s.x, SURFACE_DECAL_Y, s.z);
       dust.rotation.x = -Math.PI / 2;
-      const scale = 1.2 + 0.45 * Math.sin(i * 2.41);
-      // For a CircleGeometry rotated -π/2 about X (now lying flat on the
-      // ground), rotating about Z aligns it within the ground plane.
-      dust.rotation.z = -yaw;
-      dust.scale.set(scale * 1.7, scale * 0.46, 1);
+      dust.rotation.z = -s.yaw;
+      const scale = 1.4 + 0.5 * Math.sin(i * 1.71);
+      dust.scale.set(scale * 1.8, scale * 0.5, 1);
       this.robotaxiTrackGroup.add(dust);
+      placed += 1;
     }
 
     this.robotaxiTrackGroup.visible = true;
