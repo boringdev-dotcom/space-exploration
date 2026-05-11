@@ -258,8 +258,14 @@ export async function createRobotaxiPhysics(
       // sub-step is bounded for stability but we run enough of them to
       // keep up. Capped at 6 sub-steps per frame so a catastrophic stall
       // can't lock the main thread up trying to "catch up".
+      // Allow up to 16 sub-steps of physics per JS frame so a software-
+      // WebGL host (1.5 M-splat Marble surface at sub-5 fps) still keeps
+      // physics within visible distance of wall clock. 16 × 1/30 = ~530 ms
+      // of physics worst-case, which on a slow host is the same order of
+      // magnitude as the rendering cost — i.e. we don't make a stuttery
+      // host materially worse.
       const subStepMax = 1 / 60;
-      const subStepCount = Math.min(6, Math.max(1, Math.ceil(dt / subStepMax)));
+      const subStepCount = Math.min(16, Math.max(1, Math.ceil(dt / subStepMax)));
       const subStepDt = Math.min(1 / 30, Math.max(1 / 240, dt / subStepCount));
       world.timestep = subStepDt;
       for (let i = 0; i < subStepCount; i++) {
