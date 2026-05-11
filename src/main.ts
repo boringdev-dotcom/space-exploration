@@ -36,33 +36,32 @@ function bootstrap(): void {
   // Expose for debugging in dev.
   if (import.meta.env.DEV) {
     (window as unknown as { __manager: SceneManager }).__manager = manager;
+  }
 
-    // Convenience URL shortcuts for manual testing without DevTools:
-    //   ?surface=1   → jump straight to the Mars surface scene
-    //   ?surface=1&taxi=1 → also auto-summon the robotaxi once ready
-    // Useful for headless browsers / screen recordings where the console
-    // input may not be reliably accessible.
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("surface")) {
-      // Defer so SceneManager + HUD finish their constructor work first.
-      window.setTimeout(() => {
-        try {
-          manager.forceSurfaceForDebug();
-        } catch (err) {
-          console.warn("[main] ?surface URL shortcut failed", err);
-        }
-      }, 50);
-      if (params.get("taxi") === "1") {
-        // Poll for surface ready (splat finished loading) then summon.
-        const trySummon = (): void => {
-          if (manager.surface.status === "ready") {
-            manager.surface.requestRobotaxi();
-          } else {
-            window.setTimeout(trySummon, 300);
-          }
-        };
-        window.setTimeout(trySummon, 800);
+  // Convenience URL shortcuts for manual testing + screen recordings:
+  //   ?surface=1   → jump straight to the Mars surface scene
+  //   ?surface=1&taxi=1 → also auto-summon the robotaxi once ready
+  // Available in both dev and the preview/production builds — the
+  // shortcut just calls the existing SceneManager helper, so it can't do
+  // anything a user couldn't already do via the in-game UI.
+  const params = new URLSearchParams(window.location.search);
+  if (params.has("surface")) {
+    window.setTimeout(() => {
+      try {
+        manager.forceSurfaceForDebug();
+      } catch (err) {
+        console.warn("[main] ?surface URL shortcut failed", err);
       }
+    }, 50);
+    if (params.get("taxi") === "1") {
+      const trySummon = (): void => {
+        if (manager.surface.status === "ready") {
+          manager.surface.requestRobotaxi();
+        } else {
+          window.setTimeout(trySummon, 300);
+        }
+      };
+      window.setTimeout(trySummon, 800);
     }
   }
 }
