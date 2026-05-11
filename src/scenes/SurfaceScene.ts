@@ -152,7 +152,7 @@ const ROBOTAXI_CHASSIS_TO_ROOT_Y = 1.38;
 /** Pure-pursuit lookahead distance (m). Bigger = lazier turn-in. */
 const ROBOTAXI_PURSUIT_LOOKAHEAD = 7.25;
 /** Steering proportional gain mapping heading error → wheel angle. */
-const ROBOTAXI_STEER_GAIN = 0.95;
+const ROBOTAXI_STEER_GAIN = 0.78;
 /** Engine force per (m/s) of speed error when accelerating. */
 const ROBOTAXI_ENGINE_GAIN = 310;
 /** Brake impulse per (m/s) of speed overshoot. */
@@ -1153,9 +1153,19 @@ export class SurfaceScene implements SceneSlot {
     // Keep progress tied to where the chassis actually is. If the tyres
     // drift wide, the lookahead target remains on the nearest forward path
     // point instead of marching away by speed alone.
-    this.robotaxiPathProgress = this.closestHermiteProgress(
+    const nearestProgress = this.closestHermiteProgress(
       this._taxiScratchD,
       this.robotaxiPathProgress,
+    );
+    const speedBasedProgress =
+      this.robotaxiPathProgress
+      + Math.max(currentSpeed, this.robotaxiTargetSpeed * 0.32)
+        * dt
+        / Math.max(0.5, this.robotaxiPathLength);
+    this.robotaxiPathProgress = THREE.MathUtils.clamp(
+      Math.max(nearestProgress, speedBasedProgress),
+      0,
+      1,
     );
 
     // Lookahead target point on the path.
@@ -1430,8 +1440,10 @@ export class SurfaceScene implements SceneSlot {
     const dirZ = dz / dist;
     const targetY = ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y;
     const yError = targetY - this._taxiScratchD.y;
+    const r = physics.chassis.rotation();
+    const chassisUpY = 1 - 2 * (r.x * r.x + r.z * r.z);
 
-    if (Math.abs(yError) > 1.15 || dist > 16) {
+    if (chassisUpY < 0.45 || Math.abs(yError) > 1.15 || dist > 16) {
       const safeHeading =
         dist > 0.2 ? Math.atan2(dirX, -dirZ) : this.robotaxiHeading;
       physics.chassis.setTranslation(

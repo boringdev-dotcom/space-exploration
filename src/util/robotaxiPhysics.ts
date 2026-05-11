@@ -180,7 +180,7 @@ export async function createRobotaxiPhysics(
 
   const maxEngineForce = 1350;
   const maxBrake = 165;
-  const maxSteerAngle = 0.46; // ~26°
+  const maxSteerAngle = 0.38; // ~22°
 
   return {
     RAPIER,
