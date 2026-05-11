@@ -259,14 +259,15 @@ export async function createRobotaxiPhysics(
       // keep up. Capped at 6 sub-steps per frame so a catastrophic stall
       // can't lock the main thread up trying to "catch up".
       // Sub-step Rapier to keep physics in sync with wall clock even on
-      // very slow hosts. On a real-GPU browser running at 60 fps this is
-      // a single 16 ms step. On a software-WebGL host stalling at <1 fps
-      // (e.g. a 1.5 M-splat Marble scan with no GPU) we still want the
-      // truck to actually drive, so the cap is generous: 64 × 1/30 ≈ 2.1 s
-      // of physics per JS frame. The cost is bounded by `dt` itself; we
-      // never simulate more wall-clock-equivalent than the frame took.
+      // very slow hosts. On a real-GPU browser at 60 fps this is a single
+      // 16 ms step. On a software-WebGL host at <1 fps (e.g. a 1.5 M-splat
+      // Marble scan with no GPU) we still want the truck to actually
+      // drive. Cap is 200 × 1/30 ≈ 6.7 s of physics per JS frame, which
+      // matches the surface scene's 5 s wall-clock cap (so we always have
+      // headroom to fully consume the incoming dt regardless of frame
+      // length).
       const subStepMax = 1 / 60;
-      const subStepCount = Math.min(64, Math.max(1, Math.ceil(dt / subStepMax)));
+      const subStepCount = Math.min(200, Math.max(1, Math.ceil(dt / subStepMax)));
       const subStepDt = Math.min(1 / 30, Math.max(1 / 240, dt / subStepCount));
       world.timestep = subStepDt;
       for (let i = 0; i < subStepCount; i++) {

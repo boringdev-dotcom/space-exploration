@@ -356,6 +356,12 @@ export class SurfaceScene implements SceneSlot {
 
   private robotaxiModelBaseY = 0;
   private robotaxiCameraHandoff = 0;
+  /** performance.now() at the previous robotaxi tick (ms). Lets the
+   *  robotaxi tick measure wall-clock dt directly, bypassing the global
+   *  100 ms safety clamp on `SceneManager`'s main delta. Necessary so
+   *  that on slow-software-WebGL hosts the truck can still drive at
+   *  roughly real-time pace via aggressive sub-stepping. -1 = uninit. */
+  private robotaxiWallTimeMs = -1;
   /** Steer-axis groups wrapping each wheel mesh so we can rotate around Y
    *  (steering) and X (roll) without disturbing the rest of the GLB. */
   private robotaxiWheels: Array<{ group: THREE.Group; isFront: boolean }> = [];
@@ -999,14 +1005,37 @@ export class SurfaceScene implements SceneSlot {
    * rather than the truck snapping to face the next sample.
    */
   private updateRobotaxi(dt: number, elapsed: number): void {
-    if (this.robotaxiState === "idle") return;
+    if (this.robotaxiState === "idle") {
+      // Reset wall-time tracker so a re-summon doesn't carry over a huge
+      // accumulated gap from when the truck was idle.
+      this.robotaxiWallTimeMs = -1;
+      return;
+    }
     if (!this.robotaxiModel) {
-      // Model still loading — hold the truck offscreen invisibly until
-      // it resolves; nothing else to update.
+      this.robotaxiWallTimeMs = -1;
       return;
     }
     if (dt <= 0) return;
     this.robotaxiRoot.visible = true;
+
+    // Measure true wall-clock dt for the robotaxi specifically. The
+    // SceneManager hard-clamps the main delta at 0.1 s so a slow-renderer
+    // host (1 fps in software WebGL with 1.5 M splats) would only get
+    // 100 ms of physics simulated per wall-clock frame, making the truck
+    // crawl. We use performance.now() here so the robotaxi can catch up.
+    const nowMs = (typeof performance !== "undefined" && performance.now
+      ? performance.now()
+      : Date.now());
+    let wallDt = this.robotaxiWallTimeMs < 0
+      ? dt
+      : Math.min(5.0, (nowMs - this.robotaxiWallTimeMs) / 1000);
+    this.robotaxiWallTimeMs = nowMs;
+    // Floor at the SceneManager's reported dt so we never simulate less
+    // than the renderer thinks happened. Cap at 5 s so a tab-resume after
+    // a long pause can't dump a multi-minute physics chunk at once.
+    if (!Number.isFinite(wallDt) || wallDt < dt) wallDt = dt;
+    wallDt = Math.min(5.0, wallDt);
+    dt = wallDt;
 
     // Fade-in (on spawn) / fade-out (on depart) ramp the truck materials
     // smoothly so it doesn't pop in or out of the world.
@@ -1031,14 +1060,14 @@ export class SurfaceScene implements SceneSlot {
 
     // Sub-step the control loop. On a fast host this runs once per
     // frame (dt ≈ 16 ms); on a software-WebGL host stalling at < 1 fps
-    // (e.g. a 1.5 M-splat Marble scan) we run up to 64 iterations of
+    // (e.g. a 1.5 M-splat Marble scan) we run up to 200 iterations of
     // 1/30 s so damping, lateral-damping impulses, and docking pulls
     // stay well-conditioned regardless of how badly the renderer drops
     // frames. Without this, a 5 s frame would feed dt = 5 to applyImpulse
     // and effectively teleport the chassis on the next physics step.
     const maxControlStep = 1 / 30;
     const desiredSteps = Math.max(1, Math.ceil(dt / maxControlStep));
-    const stepCount = Math.min(64, desiredSteps);
+    const stepCount = Math.min(200, desiredSteps);
     const stepDt = dt / stepCount;
 
     for (let stepIdx = 0; stepIdx < stepCount; stepIdx++) {
