@@ -67,6 +67,20 @@ export interface RobotaxiPhysics {
   /** Apply a soft horizontal damping so the truck doesn't drift sideways. */
   applyLateralDamping(strength: number, dt: number): void;
 
+  /**
+   * Wheel telemetry for visual rigs. Indices match the addWheel order:
+   *   0 = front-left, 1 = front-right, 2 = rear-left, 3 = rear-right.
+   * Front wheels (0, 1) also report a non-zero steering angle.
+   */
+  readonly wheelCount: number;
+  wheelRollAngle(index: number): number;
+  /** Last commanded steering (radians). Mirrors {@link setSteering}. */
+  currentSteerAngle(): number;
+  /** Per-wheel suspension length (m). Useful for visual wheel sag. */
+  wheelSuspensionLength(index: number): number;
+  /** Wheel rest geometry — model rigs can use this to place their meshes. */
+  wheelRadius(index: number): number;
+
   dispose(): void;
 }
 
@@ -115,8 +129,15 @@ export async function createRobotaxiPhysics(
 
   const chassisDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(0, spawnY, 0)
-    .setLinearDamping(0.12)
-    .setAngularDamping(2.85)
+    // Low linear damping lets the truck coast (a real car loses energy
+    // through tyre rolling friction + drag, both of which Rapier already
+    // models through wheel friction / suspension — extra damping just
+    // made everything feel like it was driving through mud).
+    .setLinearDamping(0.04)
+    // Drop angular damping by 3× so corner roll is visible. With the new
+    // engine force + side friction balance the chassis still stays planted;
+    // we just don't bolt it to a fictional gimbal anymore.
+    .setAngularDamping(0.85)
     .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisDesc);
 
@@ -160,17 +181,19 @@ export async function createRobotaxiPhysics(
     vehicle.addWheel({ x, y, z }, directionCs, axleCs, suspensionRestLength, wheelRadius);
   });
 
-  // Tune each wheel — stiffer suspension keeps the chassis flat on
-  // corners, generous max suspension force so the truck doesn't bottom
-  // out, side friction high enough to corner crisply without snap-over.
+  // Tune each wheel. Higher stiffness + max suspension force keep the
+  // chassis planted at the bumped-up top speed; higher side friction
+  // stiffness counteracts the understeer that would otherwise show up
+  // once we ditched the heavy angular damping. Friction slip 2.35 gives
+  // the tyres real bite so the truck carves instead of pushing wide.
   for (let i = 0; i < 4; i++) {
-    vehicle.setWheelSuspensionStiffness(i, 21);
-    vehicle.setWheelSuspensionRelaxation(i, 3.0);
-    vehicle.setWheelSuspensionCompression(i, 2.15);
+    vehicle.setWheelSuspensionStiffness(i, 26);
+    vehicle.setWheelSuspensionRelaxation(i, 3.2);
+    vehicle.setWheelSuspensionCompression(i, 2.4);
     vehicle.setWheelMaxSuspensionTravel(i, 0.42);
-    vehicle.setWheelMaxSuspensionForce(i, 7200);
-    vehicle.setWheelFrictionSlip(i, 2.05);
-    vehicle.setWheelSideFrictionStiffness(i, 0.78);
+    vehicle.setWheelMaxSuspensionForce(i, 9600);
+    vehicle.setWheelFrictionSlip(i, 2.35);
+    vehicle.setWheelSideFrictionStiffness(i, 1.05);
   }
 
   // Cached scratch values so per-frame reads don't allocate.
@@ -178,9 +201,20 @@ export async function createRobotaxiPhysics(
   const _scratchQuat = new THREE.Quaternion();
   const _scratchEuler = new THREE.Euler();
 
-  const maxEngineForce = 1350;
-  const maxBrake = 165;
-  const maxSteerAngle = 0.38; // ~22°
+  // Engine: ~2.7 m/s² peak accel against the ~1162 kg chassis. Feels
+  // brisk-not-launchy and matches a relaxed taxi tour pace once the
+  // driver tops out at ROBOTAXI_MAX_SPEED.
+  const maxEngineForce = 3200;
+  // Brake cap scales with engine force so the truck can actually stop
+  // from cruise inside a single curb-approach.
+  const maxBrake = 260;
+  const maxSteerAngle = 0.42; // ~24°
+
+  // Last commanded steering angle. Rapier exposes a per-wheel getter, but
+  // we centralise the value so the visual rig can mirror it without
+  // having to bake-in front/rear conventions.
+  let lastSteerAngle = 0;
+  const WHEEL_COUNT = 4;
 
   return {
     RAPIER,
@@ -209,6 +243,7 @@ export async function createRobotaxiPhysics(
 
     setSteering(angle: number) {
       const a = Math.max(-maxSteerAngle, Math.min(maxSteerAngle, angle));
+      lastSteerAngle = a;
       vehicle.setWheelSteering(0, a);
       vehicle.setWheelSteering(1, a);
       vehicle.setWheelSteering(2, 0);
@@ -289,6 +324,28 @@ export async function createRobotaxiPhysics(
       // Reference _scratchVec to keep TS happy about it being used; the
       // damper has no other allocation path.
       void _scratchVec;
+    },
+
+    wheelCount: WHEEL_COUNT,
+
+    wheelRollAngle(index: number) {
+      const a = vehicle.wheelRotation(index);
+      return typeof a === "number" ? a : 0;
+    },
+
+    currentSteerAngle() {
+      return lastSteerAngle;
+    },
+
+    wheelSuspensionLength(index: number) {
+      const l = vehicle.wheelSuspensionLength(index);
+      return typeof l === "number" ? l : suspensionRestLength;
+    },
+
+    wheelRadius(_index: number) {
+      // We use a single radius for all wheels so the visual rig can call
+      // this once at init time without paying for a Rapier getter.
+      return wheelRadius;
     },
 
     dispose() {
