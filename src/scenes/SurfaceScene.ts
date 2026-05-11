@@ -555,7 +555,12 @@ export class SurfaceScene implements SceneSlot {
     this.robotaxiRoot.position.y = ROBOTAXI_GROUND_Y;
     this.clearRobotaxiTracks();
     this.entryRevealElapsed = 0;
+    // Always start with the disc hidden. If we fall through to the
+    // procedural fallback path we re-enable it; if the real Marble splat
+    // loads it stays hidden so we don't overlay a flat brown circle on
+    // top of the photoreal splat ground.
     this.applyGroundFloorForPlanet(planet);
+    this._groundFloor.visible = false;
     void this.loadRocketForSurface(++this.rocketLoadId);
 
     if (this.splat) {
@@ -588,6 +593,7 @@ export class SurfaceScene implements SceneSlot {
       // fallback. It contributes a soft gradient toward the horizon that
       // the flat fallback disc lacks; the polygon-offset stacking with
       // the road ribbon means it doesn't z-fight either.
+      this._groundFloor.visible = true;
       this._progress = 1;
       this._status = "ready";
       return;
