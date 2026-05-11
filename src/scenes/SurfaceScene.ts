@@ -991,8 +991,8 @@ export class SurfaceScene implements SceneSlot {
         const dzArr = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToArrival = Math.hypot(dxArr, dzArr);
         const reachedCurb =
-          (this.robotaxiPathProgress >= 0.995 && distToArrival < 2.4 && this.robotaxiSpeed < 1.0)
-          || (distToArrival < 1.2 && this.robotaxiSpeed < 0.85);
+          (this.robotaxiPathProgress >= 0.995 && distToArrival < 1.6 && this.robotaxiSpeed < 1.35)
+          || (distToArrival < 1.1 && this.robotaxiSpeed < 1.35);
         if (reachedCurb) {
           // Stopped at the curb — settle the chassis to the exact arrival
           // pose so the boarding handoff has a clean reference, then begin
@@ -1040,8 +1040,8 @@ export class SurfaceScene implements SceneSlot {
         const dzRet = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToReturn = Math.hypot(dxRet, dzRet);
         const reachedDropoff =
-          (this.robotaxiPathProgress >= 0.995 && distToReturn < 2.4 && this.robotaxiSpeed < 1.0)
-          || (distToReturn < 1.2 && this.robotaxiSpeed < 0.85);
+          (this.robotaxiPathProgress >= 0.995 && distToReturn < 1.6 && this.robotaxiSpeed < 1.35)
+          || (distToReturn < 1.1 && this.robotaxiSpeed < 1.35);
         if (reachedDropoff) {
           this.physics.teleport(
             this._taxiScratchA.set(
@@ -1246,6 +1246,9 @@ export class SurfaceScene implements SceneSlot {
     physics.applyLateralDamping(1.65, dt);
 
     physics.step(dt);
+    if (stopAtEnd) {
+      this.applyFinalDockingAssist(physics, dt);
+    }
     this.recoverPhysicsChassisIfNeeded(physics, dt);
     this.syncRootFromPhysics();
     this.applyRobotaxiModelPose(dt, elapsed);
@@ -1430,6 +1433,68 @@ export class SurfaceScene implements SceneSlot {
     );
     const docking = smoothstep(0.76, 0.98, endpointProgress);
     return THREE.MathUtils.lerp(cruiseLookahead, 3.2, docking);
+  }
+
+  /**
+   * Last few metres of autonomous parking. Once the path sampler has reached
+   * the curbside endpoint, the target no longer moves; if the tyres are wide
+   * of the curve, use a slow parking-assist pull rather than waiting for a
+   * saturated steering angle to crawl there forever.
+   */
+  private applyFinalDockingAssist(physics: RobotaxiPhysics, dt: number): void {
+    if (this.robotaxiPathProgress < 0.985 || dt <= 0) return;
+    physics.readPosition(this._taxiScratchD);
+    const dx = this._robotaxiPathP1.x - this._taxiScratchD.x;
+    const dz = this._robotaxiPathP1.z - this._taxiScratchD.z;
+    const dist = Math.hypot(dx, dz);
+    if (dist > 6.8) return;
+
+    const invDist = dist > 1e-4 ? 1 / dist : 0;
+    const dirX = dx * invDist;
+    const dirZ = dz * invDist;
+    const dockSpeed = THREE.MathUtils.clamp(
+      Math.max(this.robotaxiTargetSpeed, ROBOTAXI_APPROACH_SPEED),
+      0.75,
+      2.15,
+    );
+    const step = Math.min(dist, dockSpeed * dt);
+    const nextX = this._taxiScratchD.x + dirX * step;
+    const nextZ = this._taxiScratchD.z + dirZ * step;
+    const targetY = ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y;
+
+    physics.chassis.setTranslation(
+      {
+        x: nextX,
+        y: targetY,
+        z: nextZ,
+      },
+      true,
+    );
+    physics.chassis.setLinvel(
+      {
+        x: dirX * dockSpeed,
+        y: 0,
+        z: dirZ * dockSpeed,
+      },
+      true,
+    );
+
+    const tangent = this._robotaxiPathT1;
+    const tangentLen = Math.hypot(tangent.x, tangent.z);
+    const desiredHeading = tangentLen > 1e-3
+      ? Math.atan2(tangent.x, -tangent.z)
+      : this.robotaxiArrivalHeading;
+    const yaw = dampAngle(physics.heading(), desiredHeading, 5.4, dt);
+    const half = yaw * 0.5;
+    physics.chassis.setRotation(
+      { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) },
+      true,
+    );
+
+    if (dist < 1.8) {
+      physics.setEngineForce(0);
+      physics.setBrake(physics.maxBrake * 0.55);
+    }
   }
 
   /**
