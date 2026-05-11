@@ -1017,9 +1017,12 @@ export class SurfaceScene implements SceneSlot {
         const dxArr = this.robotaxiRoot.position.x - this._robotaxiArrivalPos.x;
         const dzArr = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToArrival = Math.hypot(dxArr, dzArr);
-        const reachedCurb =
-          (this.robotaxiPathProgress >= 0.995 && distToArrival < 1.6 && this.robotaxiSpeed < 1.35)
-          || (distToArrival < 1.1 && this.robotaxiSpeed < 1.35);
+        // Trigger the boarding settle as soon as the chassis is physically
+        // close to the curb and slow enough that the docking pose looks
+        // stable. We no longer gate this on spline progress because the
+        // monotonic-forward sampling can saturate at 1.0 while the truck
+        // is still being pulled sideways onto the curve.
+        const reachedCurb = distToArrival < 1.8 && this.robotaxiSpeed < 1.6;
         if (reachedCurb) {
           // Stopped at the curb — settle the chassis to the exact arrival
           // pose so the boarding handoff has a clean reference, then begin
@@ -1066,9 +1069,10 @@ export class SurfaceScene implements SceneSlot {
         const dxRet = this.robotaxiRoot.position.x - this._robotaxiArrivalPos.x;
         const dzRet = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToReturn = Math.hypot(dxRet, dzRet);
-        const reachedDropoff =
-          (this.robotaxiPathProgress >= 0.995 && distToReturn < 1.6 && this.robotaxiSpeed < 1.35)
-          || (distToReturn < 1.1 && this.robotaxiSpeed < 1.35);
+        // Same physical-distance gate as the arriving phase — see the
+        // matching comment above for why we don't require pathProgress to
+        // be fully saturated here.
+        const reachedDropoff = distToReturn < 1.8 && this.robotaxiSpeed < 1.6;
         if (reachedDropoff) {
           this.physics.teleport(
             this._taxiScratchA.set(
@@ -1463,20 +1467,30 @@ export class SurfaceScene implements SceneSlot {
   }
 
   /**
-   * Last few metres of autonomous parking. Once the spline progress is at
-   * the endpoint, gently pull the chassis the rest of the way using an
-   * impulse-based assist plus a damped heading correction — no hard
-   * setTranslation snap. The earlier "park the chassis at the endpoint"
-   * implementation produced a visible pop and undid the suspension dip,
-   * which was the single most "fake" moment of the whole tour.
+   * Last few metres of autonomous parking. Once the spline progress is
+   * saturated OR the chassis is close to the endpoint, gently pull it
+   * the rest of the way using an impulse-based assist plus a damped
+   * heading correction — no hard setTranslation snap. The earlier "park
+   * the chassis at the endpoint" implementation produced a visible pop
+   * and undid the suspension dip, which was the most "fake" moment of
+   * the whole tour. We also engage the assist below progress=0.985 if
+   * the chassis is already within ~12 m of the endpoint, because the
+   * spline progress can saturate at 1.0 while the truck is still wide
+   * of the curve (pure-pursuit oversteer or a late lateral correction)
+   * and otherwise the truck would just stall short of the curb.
    */
   private applyFinalDockingAssist(physics: RobotaxiPhysics, dt: number): void {
-    if (this.robotaxiPathProgress < 0.985 || dt <= 0) return;
+    if (dt <= 0) return;
     physics.readPosition(this._taxiScratchD);
     const dx = this._robotaxiPathP1.x - this._taxiScratchD.x;
     const dz = this._robotaxiPathP1.z - this._taxiScratchD.z;
     const dist = Math.hypot(dx, dz);
-    if (dist > 5.5) return;
+    // Engage when either (a) the spline is nearly done, or (b) we're
+    // visibly close to the curb regardless of progress.
+    const splineNearEnd = this.robotaxiPathProgress >= 0.985;
+    const physicallyClose = dist < 12;
+    if (!splineNearEnd && !physicallyClose) return;
+    if (dist > 14) return;
 
     const invDist = dist > 1e-4 ? 1 / dist : 0;
     const dirX = dx * invDist;
@@ -1486,14 +1500,16 @@ export class SurfaceScene implements SceneSlot {
     // scale with remaining distance so we ease in.
     const linvel = physics.chassis.linvel();
     const along = linvel.x * dirX + linvel.z * dirZ;
-    const desiredSpeed = THREE.MathUtils.clamp(dist * 0.9, 0.0, ROBOTAXI_APPROACH_SPEED);
-    const speedError = desiredSpeed - Math.max(0, along);
+    // At >5 m we want a steady cruise toward the curb; <2 m we crawl.
+    const desiredSpeed = THREE.MathUtils.clamp(dist * 0.45, 0.4, ROBOTAXI_APPROACH_SPEED);
+    const speedError = desiredSpeed - along;
     if (speedError > 0) {
       const mass = physics.chassis.mass();
-      // Force in N: gentle pull, capped so it never overrides Rapier's
-      // own suspension response. 0.55 × mass × accelΔ ≈ light hand on
-      // the wheel.
-      const strength = Math.min(0.9, speedError) * mass * 0.55;
+      // Force ramp scales with how far off we are. At 12 m the cap of
+      // 1.8 m/s² makes the assist a useful nudge; near the curb (~1 m)
+      // it falls off so we don't catapult past the endpoint.
+      const accelCap = 1.8;
+      const strength = Math.min(accelCap, speedError) * mass * 0.55;
       physics.chassis.applyImpulse(
         { x: dirX * strength * dt, y: 0, z: dirZ * strength * dt },
         true,
