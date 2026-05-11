@@ -1,5 +1,6 @@
 import { PLANETS, type Planet } from "../data/planets";
 import type {
+  SurfaceRobotaxiSnapshot,
   SurfaceRocketInteractionSnapshot,
   SurfaceStatus,
 } from "../scenes/SurfaceScene";
@@ -11,12 +12,15 @@ interface Args {
   getProgress: () => number;
   getEntryRevealProgress?: () => number;
   getRocketInteraction: () => SurfaceRocketInteractionSnapshot;
+  getRobotaxiSnapshot?: () => SurfaceRobotaxiSnapshot;
   onLockRequest: () => void;
   onPointerLockState: (cb: (locked: boolean) => void) => void;
   onReturn: () => void;
   onBoardRocket: () => boolean;
   onCancelBoarding: () => void;
   onLaunchFromSurface: (planet: Planet) => void;
+  onRequestRobotaxi?: () => boolean;
+  onEndRobotaxi?: () => void;
 }
 
 export function mountSurfaceHud(args: Args): () => void {
@@ -42,6 +46,10 @@ export function mountSurfaceHud(args: Args): () => void {
   const detailAtmosphere = document.getElementById("surface-destination-detail-atmosphere");
   const detailTemp = document.getElementById("surface-destination-detail-temp");
   const launchBtn = document.getElementById("surface-destination-launch") as HTMLButtonElement | null;
+  const robotaxiPrompt = document.getElementById("surface-robotaxi-prompt") as HTMLButtonElement | null;
+  const robotaxiTitle = document.getElementById("surface-robotaxi-prompt-title");
+  const robotaxiCopy = document.getElementById("surface-robotaxi-prompt-copy");
+  const robotaxiStatus = document.getElementById("surface-robotaxi-status");
 
   let raf = 0;
   let plannerOpen = false;
@@ -52,8 +60,9 @@ export function mountSurfaceHud(args: Args): () => void {
   args.onPointerLockState((locked) => {
     pointerLocked = locked;
     const revealDone = (args.getEntryRevealProgress?.() ?? 1) >= 0.98;
+    const robotaxiActive = (args.getRobotaxiSnapshot?.().state ?? "idle") !== "idle";
     if (lockPrompt) {
-      lockPrompt.classList.toggle("is-hidden", locked || plannerOpen || !revealDone);
+      lockPrompt.classList.toggle("is-hidden", locked || plannerOpen || !revealDone || robotaxiActive);
     }
   });
 
@@ -108,7 +117,8 @@ export function mountSurfaceHud(args: Args): () => void {
 
     screen?.classList.toggle("is-entering", revealProgress < 1);
     if (lockPrompt) {
-      lockPrompt.classList.toggle("is-hidden", pointerLocked || plannerOpen || !revealDone);
+      const robotaxiActive = (args.getRobotaxiSnapshot?.().state ?? "idle") !== "idle";
+      lockPrompt.classList.toggle("is-hidden", pointerLocked || plannerOpen || !revealDone || robotaxiActive);
     }
 
     if (rocketDistance) rocketDistance.textContent = distanceText;
@@ -146,6 +156,68 @@ export function mountSurfaceHud(args: Args): () => void {
 
     if (modalCurrent && current) {
       modalCurrent.textContent = `CURRENT LOCATION · ${current.name.toUpperCase()}`;
+    }
+
+    updateRobotaxiHud();
+  }
+
+  /**
+   * Drive the Mars Robotaxi summon button. Visible only on Mars while
+   * the player is walking on a ready surface; the button copy flips to
+   * "End tour" while a ride is in progress so the same button doubles as
+   * an exit affordance.
+   */
+  function updateRobotaxiHud(): void {
+    if (!robotaxiPrompt) return;
+    const snap = args.getRobotaxiSnapshot?.();
+    const canShow =
+      Boolean(screen?.classList.contains("is-active")) &&
+      snap !== undefined &&
+      (snap.available || snap.state !== "idle") &&
+      !plannerOpen &&
+      (args.getEntryRevealProgress?.() ?? 1) >= 0.98;
+
+    robotaxiPrompt.classList.toggle("is-visible", canShow);
+    robotaxiPrompt.disabled = !canShow;
+    robotaxiPrompt.setAttribute("aria-hidden", canShow ? "false" : "true");
+    if (!snap) return;
+
+    const setText = (el: HTMLElement | null, text: string): void => {
+      if (el) el.textContent = text;
+    };
+    switch (snap.state) {
+      case "idle":
+        setText(robotaxiTitle, "Summon Robotaxi");
+        setText(
+          robotaxiCopy,
+          "Press R or click — a Cybertruck rolls in for a tour.",
+        );
+        setText(robotaxiStatus, "READY");
+        break;
+      case "summoning": {
+        setText(robotaxiTitle, "Cybertruck inbound…");
+        const dist = snap.truckDistance != null
+          ? `${snap.truckDistance.toFixed(0)} m out`
+          : "rolling in";
+        setText(robotaxiCopy, `Hold position — ${dist}.`);
+        setText(robotaxiStatus, "ARRIVING");
+        break;
+      }
+      case "touring": {
+        const pct = Math.round(snap.tourProgress * 100);
+        setText(robotaxiTitle, "End Tour");
+        setText(
+          robotaxiCopy,
+          `Press R or ESC to step off the ride — ${pct}% complete.`,
+        );
+        setText(robotaxiStatus, "TOURING");
+        break;
+      }
+      case "ending":
+        setText(robotaxiTitle, "Parking…");
+        setText(robotaxiCopy, "Truck rolling back to the drop-off spot.");
+        setText(robotaxiStatus, "PARKING");
+        break;
     }
   }
 
@@ -272,6 +344,18 @@ export function mountSurfaceHud(args: Args): () => void {
   };
   rocketPrompt?.addEventListener("click", onBoardClick);
 
+  const onRobotaxiClick = (): void => {
+    playCue("click");
+    const snap = args.getRobotaxiSnapshot?.();
+    if (!snap) return;
+    if (snap.state === "idle") {
+      args.onRequestRobotaxi?.();
+    } else {
+      args.onEndRobotaxi?.();
+    }
+  };
+  robotaxiPrompt?.addEventListener("click", onRobotaxiClick);
+
   const onModalClose = (): void => {
     playCue("click");
     closePlanner();
@@ -293,11 +377,32 @@ export function mountSurfaceHud(args: Args): () => void {
       closePlanner();
       return;
     }
+    // ESC during a tour ends the ride. We catch this before the
+    // PointerLock controller sees it; if the ride isn't active, fall
+    // through and let the lock release normally.
+    if (event.code === "Escape" && !event.repeat && !plannerOpen) {
+      const snap = args.getRobotaxiSnapshot?.();
+      if (snap && snap.state !== "idle") {
+        event.preventDefault();
+        args.onEndRobotaxi?.();
+        return;
+      }
+    }
     if (event.code === "KeyE" && !event.repeat && !plannerOpen) {
       const interaction = args.getRocketInteraction();
       if (!interaction.hintVisible) return;
       event.preventDefault();
       openPlanner();
+    }
+    // R toggles the robotaxi: summon if idle, end tour if active.
+    if (event.code === "KeyR" && !event.repeat && !plannerOpen) {
+      const snap = args.getRobotaxiSnapshot?.();
+      if (!snap) return;
+      if (!snap.available && snap.state === "idle") return;
+      event.preventDefault();
+      playCue("click");
+      if (snap.state === "idle") args.onRequestRobotaxi?.();
+      else args.onEndRobotaxi?.();
     }
   };
   window.addEventListener("keydown", onKeyDown);
@@ -308,6 +413,7 @@ export function mountSurfaceHud(args: Args): () => void {
     lockPrompt?.removeEventListener("click", onLockClick);
     returnBtn?.removeEventListener("click", onReturn);
     rocketPrompt?.removeEventListener("click", onBoardClick);
+    robotaxiPrompt?.removeEventListener("click", onRobotaxiClick);
     modalClose?.removeEventListener("click", onModalClose);
     launchBtn?.removeEventListener("click", onLaunch);
     window.removeEventListener("keydown", onKeyDown);
