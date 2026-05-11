@@ -114,14 +114,14 @@ const ROBOTAXI_MODEL_YAW_OFFSET = Math.PI;
  */
 const ROBOTAXI_PICKUP_FORWARD = 5.0;
 const ROBOTAXI_PICKUP_SIDE = 2.6;
-/** Top cruise speed on a long straight (m/s). */
-const ROBOTAXI_MAX_SPEED = 5.4;
-/** Target speed in the middle of a tight corner. */
-const ROBOTAXI_CORNER_SPEED = 2.55;
-/** Final crawl speed when easing into the pickup or dropoff. */
-const ROBOTAXI_APPROACH_SPEED = 1.35;
+/** Top cruise speed on a long straight (m/s) ~ 37 km/h, relaxed tour pace. */
+const ROBOTAXI_MAX_SPEED = 10.5;
+/** Target speed in the middle of a tight corner (m/s). */
+const ROBOTAXI_CORNER_SPEED = 5.5;
+/** Final crawl speed when easing into the pickup or dropoff (m/s). */
+const ROBOTAXI_APPROACH_SPEED = 1.9;
 /** Tour duration before the truck auto-returns to the pickup (sec). */
-const ROBOTAXI_TOUR_DURATION_SEC = 36;
+const ROBOTAXI_TOUR_DURATION_SEC = 46;
 /**
  * Racetrack-shaped tour: a rounded rectangle centred on the pickup spot.
  * Long straights give the truck somewhere to actually accelerate.
@@ -134,15 +134,15 @@ const ROBOTAXI_TOUR_PATH_LENGTH =
   // where a,b are half-widths along the principal axes and r is corner radius.
   4 * (ROBOTAXI_TOUR_HALF_X + ROBOTAXI_TOUR_HALF_Z - 2 * ROBOTAXI_TOUR_CORNER_RADIUS) +
   2 * Math.PI * ROBOTAXI_TOUR_CORNER_RADIUS;
-/** Chase-camera offsets relative to the truck root. Eye height is generous
- * because Marble splats have noisy upper geometry — staying clearly above
- * the player walking head-height (1 m) avoids ducking through dust splats. */
-const ROBOTAXI_RIDE_EYE_HEIGHT = 5.2;
-const ROBOTAXI_RIDE_EYE_OFFSET_Z = 9.2;
-const ROBOTAXI_RIDE_LOOKAHEAD = 14;
-/** Floor for the chase camera in absolute world Y, so we never drop below
- * the player's normal eye plane regardless of where the truck root sits. */
-const ROBOTAXI_RIDE_MIN_CAMERA_Y = 3.6;
+/** Chase-camera offsets relative to the truck root. Lowered from a drone
+ * height to a believable "behind-the-cab" pose: the rider should feel
+ * like they're in the truck, not piloting it from a helicopter. */
+const ROBOTAXI_RIDE_EYE_HEIGHT = 4.2;
+const ROBOTAXI_RIDE_EYE_OFFSET_Z = 8.4;
+const ROBOTAXI_RIDE_LOOKAHEAD = 12;
+/** Floor for the chase camera in absolute world Y. Kept above walking
+ * eye-height (1 m) so we never duck into noisy upper splat geometry. */
+const ROBOTAXI_RIDE_MIN_CAMERA_Y = 2.8;
 /** When the chassis is at rest with weight on its wheels, the chassis
  * centre sits about this far above the ground plane. The root group
  * tracks chassis_y minus this constant so the visible wheels touch the
@@ -150,13 +150,17 @@ const ROBOTAXI_RIDE_MIN_CAMERA_Y = 3.6;
  * during cornering. */
 const ROBOTAXI_CHASSIS_TO_ROOT_Y = 1.38;
 /** Pure-pursuit lookahead distance (m). Bigger = lazier turn-in. */
-const ROBOTAXI_PURSUIT_LOOKAHEAD = 7.25;
-/** Steering proportional gain mapping heading error → wheel angle. */
-const ROBOTAXI_STEER_GAIN = 0.78;
-/** Engine force per (m/s) of speed error when accelerating. */
-const ROBOTAXI_ENGINE_GAIN = 310;
-/** Brake impulse per (m/s) of speed overshoot. */
-const ROBOTAXI_BRAKE_GAIN = 46;
+const ROBOTAXI_PURSUIT_LOOKAHEAD = 9.0;
+/** Steering proportional gain mapping heading error → wheel angle.
+ *  Lowered alongside the higher top speed; saturated steering at 10 m/s
+ *  with the old 0.78 gain caused visible wobble at corner entries. */
+const ROBOTAXI_STEER_GAIN = 0.55;
+/** Engine force per (m/s) of speed error when accelerating. Scales with
+ *  the new max engine force so a 2 m/s underspeed produces roughly the
+ *  same proportional throttle as before. */
+const ROBOTAXI_ENGINE_GAIN = 420;
+/** Brake impulse per (m/s) of speed overshoot. Matches the new brake cap. */
+const ROBOTAXI_BRAKE_GAIN = 60;
 /** Pause durations for getting in / getting out (sec). */
 const ROBOTAXI_BOARDING_PAUSE_SEC = 1.5;
 const ROBOTAXI_DROPOFF_PAUSE_SEC = 1.4;
@@ -1436,10 +1440,12 @@ export class SurfaceScene implements SceneSlot {
   }
 
   /**
-   * Last few metres of autonomous parking. Once the path sampler has reached
-   * the curbside endpoint, the target no longer moves; if the tyres are wide
-   * of the curve, use a slow parking-assist pull rather than waiting for a
-   * saturated steering angle to crawl there forever.
+   * Last few metres of autonomous parking. Once the spline progress is at
+   * the endpoint, gently pull the chassis the rest of the way using an
+   * impulse-based assist plus a damped heading correction — no hard
+   * setTranslation snap. The earlier "park the chassis at the endpoint"
+   * implementation produced a visible pop and undid the suspension dip,
+   * which was the single most "fake" moment of the whole tour.
    */
   private applyFinalDockingAssist(physics: RobotaxiPhysics, dt: number): void {
     if (this.robotaxiPathProgress < 0.985 || dt <= 0) return;
@@ -1447,63 +1453,71 @@ export class SurfaceScene implements SceneSlot {
     const dx = this._robotaxiPathP1.x - this._taxiScratchD.x;
     const dz = this._robotaxiPathP1.z - this._taxiScratchD.z;
     const dist = Math.hypot(dx, dz);
-    if (dist > 6.8) return;
+    if (dist > 5.5) return;
 
     const invDist = dist > 1e-4 ? 1 / dist : 0;
     const dirX = dx * invDist;
     const dirZ = dz * invDist;
-    const dockSpeed = THREE.MathUtils.clamp(
-      Math.max(this.robotaxiTargetSpeed, ROBOTAXI_APPROACH_SPEED),
-      0.75,
-      2.15,
-    );
-    const step = Math.min(dist, dockSpeed * dt);
-    const nextX = this._taxiScratchD.x + dirX * step;
-    const nextZ = this._taxiScratchD.z + dirZ * step;
-    const targetY = ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y;
 
-    physics.chassis.setTranslation(
-      {
-        x: nextX,
-        y: targetY,
-        z: nextZ,
-      },
-      true,
-    );
-    physics.chassis.setLinvel(
-      {
-        x: dirX * dockSpeed,
-        y: 0,
-        z: dirZ * dockSpeed,
-      },
-      true,
-    );
+    // Soft pull cap: don't accelerate beyond a slow parking creep, and
+    // scale with remaining distance so we ease in.
+    const linvel = physics.chassis.linvel();
+    const along = linvel.x * dirX + linvel.z * dirZ;
+    const desiredSpeed = THREE.MathUtils.clamp(dist * 0.9, 0.0, ROBOTAXI_APPROACH_SPEED);
+    const speedError = desiredSpeed - Math.max(0, along);
+    if (speedError > 0) {
+      const mass = physics.chassis.mass();
+      // Force in N: gentle pull, capped so it never overrides Rapier's
+      // own suspension response. 0.55 × mass × accelΔ ≈ light hand on
+      // the wheel.
+      const strength = Math.min(0.9, speedError) * mass * 0.55;
+      physics.chassis.applyImpulse(
+        { x: dirX * strength * dt, y: 0, z: dirZ * strength * dt },
+        true,
+      );
+    }
 
+    // Heading correction — pure damped angle blend, no rotation snap.
+    // Apply an angular impulse proportional to the heading error so the
+    // chassis settles into the curb-aligned pose under physics rather
+    // than being teleported there.
     const tangent = this._robotaxiPathT1;
     const tangentLen = Math.hypot(tangent.x, tangent.z);
     const desiredHeading = tangentLen > 1e-3
       ? Math.atan2(tangent.x, -tangent.z)
       : this.robotaxiArrivalHeading;
-    const yaw = dampAngle(physics.heading(), desiredHeading, 5.4, dt);
-    const half = yaw * 0.5;
-    physics.chassis.setRotation(
-      { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) },
-      true,
-    );
+    const headingErr = (() => {
+      let delta = desiredHeading - physics.heading();
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      return delta;
+    })();
+    const angImpulse = headingErr * physics.chassis.mass() * 0.18;
+    physics.chassis.applyTorqueImpulse({ x: 0, y: angImpulse * dt, z: 0 }, true);
 
-    if (dist < 1.8) {
+    // Bleed remaining longitudinal velocity once we're inside ~1.6 m so
+    // the truck rocks to a clean stop instead of slow-rolling past.
+    if (dist < 1.6) {
       physics.setEngineForce(0);
-      physics.setBrake(physics.maxBrake * 0.55);
+      physics.setBrake(physics.maxBrake * 0.65);
     }
   }
 
   /**
-   * Let Rapier own normal vehicle motion. This is only a safety net for
-   * pathological frames (falling through the floor, WASM hiccup, or a very
-   * wide slide). Mild route drift gets a tiny impulse toward the lookahead;
-   * severe height/route errors re-seat the chassis rather than exploding.
+   * Safety net for pathological frames only. With the new physics tune
+   * Rapier is fully capable of running the tour without any external
+   * impulses; we no longer add "route assist" nudges on every frame the
+   * truck is mildly off-spline because those were causing twitchy course
+   * corrections that looked unnatural. We only intervene when something
+   * has gone genuinely wrong:
+   *   - the chassis has flipped past 60° (chassisUpY < 0.45)
+   *   - the chassis is more than ~1.6 m above/below the contact plane
+   *     (the truck punched through the floor or got launched)
+   *   - the lookahead point is more than 28 m away (the path was
+   *     orphaned, e.g. during a phase switch)
+   * In any of those cases we re-seat onto the path and zero out velocity.
    */
-  private recoverPhysicsChassisIfNeeded(physics: RobotaxiPhysics, dt: number): void {
+  private recoverPhysicsChassisIfNeeded(physics: RobotaxiPhysics, _dt: number): void {
     physics.readPosition(this._taxiScratchD);
     const dx = this._taxiScratchC.x - this._taxiScratchD.x;
     const dz = this._taxiScratchC.z - this._taxiScratchD.z;
@@ -1515,7 +1529,7 @@ export class SurfaceScene implements SceneSlot {
     const r = physics.chassis.rotation();
     const chassisUpY = 1 - 2 * (r.x * r.x + r.z * r.z);
 
-    if (chassisUpY < 0.45 || Math.abs(yError) > 1.15 || dist > 16) {
+    if (chassisUpY < 0.45 || Math.abs(yError) > 1.6 || dist > 28) {
       const safeHeading =
         dist > 0.2 ? Math.atan2(dirX, -dirZ) : this.robotaxiHeading;
       physics.chassis.setTranslation(
@@ -1533,23 +1547,6 @@ export class SurfaceScene implements SceneSlot {
       );
       physics.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
       physics.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
-      return;
-    }
-
-    if (dist > 5.5 || (this.robotaxiTargetSpeed > 0.7 && this.robotaxiSpeed < 0.2)) {
-      const mass = physics.chassis.mass();
-      const routeAccel = THREE.MathUtils.clamp((dist - 5.5) * 1.45, 0, 4.2);
-      const launchAssist =
-        this.robotaxiTargetSpeed > 0.7 && this.robotaxiSpeed < 0.2 ? 1.15 : 0;
-      const strength = Math.max(routeAccel, launchAssist);
-      physics.chassis.applyImpulse(
-        {
-          x: dirX * strength * mass * dt,
-          y: 0,
-          z: dirZ * strength * mass * dt,
-        },
-        true,
-      );
     }
   }
 
