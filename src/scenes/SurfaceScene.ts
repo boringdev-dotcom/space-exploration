@@ -348,6 +348,20 @@ export class SurfaceScene implements SceneSlot {
 
   private robotaxiModelBaseY = 0;
   private robotaxiCameraHandoff = 0;
+  /** Steer-axis groups wrapping each wheel mesh so we can rotate around Y
+   *  (steering) and X (roll) without disturbing the rest of the GLB. */
+  private robotaxiWheels: Array<{ group: THREE.Group; isFront: boolean }> = [];
+  /** Integrated wheel rotation (rad). Same for all wheels — they share an
+   *  axle radius and the visual coupling is dominated by forward speed. */
+  private robotaxiWheelRoll = 0;
+  /** Damped visual roll/pitch of the truck body in radians. Sit on top of
+   *  the physics chassis quaternion so we can show body lean even when
+   *  Rapier's mass/inertia profile keeps the chassis stubbornly upright. */
+  private robotaxiVisualRoll = 0;
+  private robotaxiVisualPitch = 0;
+  /** Small emissive plane at the rear of the truck. Lights up when the
+   *  driver is on the brake so the chase camera reads deceleration. */
+  private robotaxiBrakeLight: THREE.Mesh | null = null;
   /**
    * 0..1 fade-in level for the truck on arrival, and 1..0 fade-out on
    * departure. Avoids the truck popping into existence at the spawn radius.
@@ -1651,33 +1665,106 @@ export class SurfaceScene implements SceneSlot {
   }
 
   /**
-   * Visual pose of the truck mesh inside the vehicle root: suspension
-   * bounce, body roll into corners, body pitch on accel/brake. Magnitudes
-   * are tuned to be felt but not seasickness-inducing.
+   * Visual pose of the truck mesh inside the vehicle root: high-frequency
+   * suspension vibration, visual body roll/pitch on top of the chassis
+   * quaternion, plus per-wheel spin + front-wheel steering.
+   *
+   * Why not just rely on the chassis quaternion? Rapier's vehicle controller
+   * does produce some natural roll under cornering, but the chassis is a
+   * single rigid cuboid with low moment-of-inertia spread — getting visible
+   * body lean from physics alone requires loose angular damping, which in
+   * turn makes the truck wobble on launch. We compromise: physics handles
+   * the trajectory + suspension dip; the visual model applies a small
+   * stylised lean that reads as "the cab is dipping into the corner"
+   * without compromising the simulation.
    */
   private applyRobotaxiModelPose(dt: number, elapsed: number): void {
     if (!this.robotaxiModel) return;
-    // Physics now owns pitch / roll / suspension via the chassis quaternion
-    // and Y position. The visible model is a child of robotaxiRoot, which
-    // already inherits those from the chassis — so we ONLY need to apply
-    // the model's static yaw offset, plus a tiny high-frequency tyre
-    // vibration that's too small to come through
-    // a 60 Hz physics step.
+    const model = this.robotaxiModel;
     const speed01 = THREE.MathUtils.clamp(
       this.robotaxiSpeed / ROBOTAXI_MAX_SPEED,
       0,
       1,
     );
+
+    // High-frequency vibration: too fast for the 60 Hz physics step to
+    // produce, but cheap to add visually for a "tyres on regolith" feel.
     const vibration =
       (0.004 * Math.sin(elapsed * 36.5) + 0.003 * noise1D(elapsed * 18.5, 3))
       * speed01;
-    this.robotaxiModel.position.y = damp(
-      this.robotaxiModel.position.y,
+    model.position.y = damp(
+      model.position.y,
       this.robotaxiModelBaseY + vibration,
       18,
       dt,
     );
-    this.robotaxiModel.rotation.set(0, ROBOTAXI_MODEL_YAW_OFFSET, 0);
+
+    // Body roll into corners: lean ~4° opposite the steering direction
+    // (i.e. the chassis dips toward the outside of the turn — classic
+    // weight-transfer pose). Scaled by speed so it's invisible while
+    // standing still.
+    const targetRoll = -this.robotaxiSteerInput * 0.075 * (0.35 + 0.65 * speed01);
+    this.robotaxiVisualRoll = damp(
+      this.robotaxiVisualRoll,
+      targetRoll,
+      6,
+      dt,
+    );
+
+    // Body pitch on accel/brake: ~2° nose-down on brake, ~1.3° nose-up
+    // on hard accel. accelInput is positive when throttling, negative when
+    // braking, so the sign convention here is "nose-up when accelerating".
+    const targetPitch = this.robotaxiAccelInput * 0.035;
+    this.robotaxiVisualPitch = damp(
+      this.robotaxiVisualPitch,
+      targetPitch,
+      5,
+      dt,
+    );
+
+    // Apply yaw offset + roll + pitch. YXZ Euler order means yaw applies
+    // first, then pitch (around the now-rotated X axis), then roll. With
+    // yaw at π and the other two near zero this is equivalent to a clean
+    // small-angle rotation in the truck's body frame.
+    model.rotation.order = "YXZ";
+    model.rotation.set(
+      this.robotaxiVisualPitch,
+      ROBOTAXI_MODEL_YAW_OFFSET,
+      this.robotaxiVisualRoll,
+    );
+
+    // Wheel spin: integrate roll angle from forward speed. Wraps modulo
+    // 2π every couple of seconds so the float stays small.
+    if (this.robotaxiWheels.length > 0 && this.physics) {
+      const wheelRadius = this.physics.wheelRadius(0) || 0.45;
+      this.robotaxiWheelRoll =
+        (this.robotaxiWheelRoll + (this.robotaxiSpeed * dt) / wheelRadius)
+        % (Math.PI * 2);
+      const steerAngle = this.physics.currentSteerAngle();
+      for (const w of this.robotaxiWheels) {
+        // YXZ order: Y first (steering), then X (roll). The wheels' axles
+        // align with model-local ±X after our re-parent, so X is the roll
+        // axis. Front wheels also receive the steering rotation.
+        w.group.rotation.set(
+          this.robotaxiWheelRoll,
+          w.isFront ? steerAngle : 0,
+          0,
+        );
+      }
+    }
+
+    // Brake light: glow whenever the driver is on the brakes. Damped so
+    // it doesn't flicker on tiny throttle dips during cruise.
+    if (this.robotaxiBrakeLight) {
+      const mat = this.robotaxiBrakeLight.material as THREE.MeshBasicMaterial;
+      const brakeStrength = Math.max(0, -this.robotaxiAccelInput);
+      const target = brakeStrength > 0.15
+        ? new THREE.Color(0xff2611)
+        : new THREE.Color(0x381008);
+      mat.color.lerp(target, 1 - Math.exp(-8 * dt));
+      mat.opacity = 0.55 + 0.35 * brakeStrength;
+      mat.needsUpdate = true;
+    }
   }
 
   private updateRobotaxiRideCamera(dt: number, elapsed: number): void {
@@ -2180,6 +2267,21 @@ export class SurfaceScene implements SceneSlot {
     this.robotaxiModelBaseY = model.position.y;
     this.robotaxiModel = model;
     this.robotaxiRoot.add(model);
+
+    // Wheel rig: find every wheel-like mesh, wrap it in a steer/roll pivot
+    // group so applyRobotaxiModelPose can spin tyres and turn the front
+    // pair without disturbing the rest of the GLB hierarchy.
+    this.robotaxiWheels = [];
+    this.robotaxiWheelRoll = 0;
+    this.robotaxiVisualRoll = 0;
+    this.robotaxiVisualPitch = 0;
+    this.attachWheelRig(model);
+
+    // Brake light: a flat emissive panel at the rear of the cab. Hidden
+    // by default; applyRobotaxiModelPose flips its emissive intensity
+    // up whenever robotaxiAccelInput is negative.
+    this.robotaxiBrakeLight = this.attachBrakeLight(model);
+
     if (this.robotaxiState !== "idle") {
       this.robotaxiRoot.visible = true;
       this.applyRobotaxiModelPose(1 / 60, this.robotaxiTourElapsed);
@@ -2188,6 +2290,126 @@ export class SurfaceScene implements SceneSlot {
       // ramps in instead of appearing at full opacity mid-drive.
       this.applyRobotaxiSpawnFade(this.robotaxiSpawnFade);
     }
+  }
+
+  /**
+   * Walk the model looking for wheel meshes. Each unique wheel gets
+   * wrapped in a `steerGroup` whose local axes are aligned with the
+   * truck body (Y up, X to the side, Z forward in model frame). The
+   * wheel mesh keeps its native rotation but moves to (0,0,0) inside
+   * its new parent so the parent's Y rotation steers it and X rotation
+   * rolls it cleanly.
+   *
+   * Heuristic for wheel identification:
+   *   1. `userData.wheelRole` tags from our procedural fallback truck.
+   *   2. Mesh / parent name matching /wheel|tire|tyre|rim/i.
+   *   3. Cluster nearby matches (radius 0.45 m) so we don't double-wrap
+   *      a rim + tyre + brake caliper at the same hub.
+   */
+  private attachWheelRig(model: THREE.Group): void {
+    interface Candidate { obj: THREE.Object3D; modelLocal: THREE.Vector3 }
+    const candidates: Candidate[] = [];
+    const tmp = new THREE.Vector3();
+    model.updateMatrixWorld(true);
+    model.traverse((obj) => {
+      const tagged = (obj.userData as { wheelRole?: string } | undefined)?.wheelRole;
+      const nameish = obj.name || obj.parent?.name || "";
+      const isWheelByName =
+        /wheel|tire|tyre|rim|hub/i.test(nameish)
+        && !/well|fender|arch|cover/i.test(nameish);
+      if (!tagged && !isWheelByName) return;
+      // Skip very small sub-meshes (lug nuts, caliper bolts) — only the
+      // largest meshes per hub should rotate.
+      const meshMaybe = obj as THREE.Mesh;
+      if (meshMaybe.isMesh && meshMaybe.geometry?.boundingBox === null) {
+        meshMaybe.geometry.computeBoundingBox();
+      }
+      tmp.setFromMatrixPosition(obj.matrixWorld);
+      const localPos = model.worldToLocal(tmp.clone());
+      candidates.push({ obj, modelLocal: localPos });
+    });
+
+    // Cluster: keep one wheel per ~0.45 m bin.
+    const used: THREE.Vector3[] = [];
+    const modelBox = new THREE.Box3().setFromObject(model);
+    const modelCenter = modelBox.getCenter(new THREE.Vector3());
+
+    for (const cand of candidates) {
+      let clashes = false;
+      for (const c of used) {
+        if (c.distanceToSquared(cand.modelLocal) < 0.45 * 0.45) {
+          clashes = true;
+          break;
+        }
+      }
+      if (clashes) continue;
+      used.push(cand.modelLocal.clone());
+
+      // Wrap. We re-parent the wheel under a fresh steerGroup that sits at
+      // the wheel's *current parent-local* position. We don't try to keep
+      // the wheel inside a deep parent chain — the new group becomes a
+      // direct child of the model root, which is the only frame our
+      // per-frame steering math knows about. (For the fallback truck the
+      // wheel is already a direct child of `group`; for GLBs it may be
+      // deep, in which case we accept losing decorative parent transforms
+      // on the wheel hub — usually empty / identity in practice.)
+      const wheel = cand.obj;
+      const steerGroup = new THREE.Group();
+      steerGroup.name = `${wheel.name || "wheel"}_pivot`;
+      steerGroup.position.copy(cand.modelLocal);
+      steerGroup.rotation.order = "YXZ";
+      // Preserve the wheel's world quaternion so its native axle orientation
+      // survives the re-parenting. The wheel's local position becomes 0 so
+      // the steerGroup is the new pivot.
+      const worldQuat = new THREE.Quaternion();
+      wheel.getWorldQuaternion(worldQuat);
+      // worldQuat is in scene space. We need it in model space because
+      // steerGroup is parented to model.
+      const modelWorldQuatInv = new THREE.Quaternion();
+      model.getWorldQuaternion(modelWorldQuatInv).invert();
+      const wheelLocalToModel = worldQuat.premultiply(modelWorldQuatInv);
+      wheel.position.set(0, 0, 0);
+      wheel.quaternion.copy(wheelLocalToModel);
+      wheel.parent?.remove(wheel);
+      steerGroup.add(wheel);
+      model.add(steerGroup);
+
+      // Front classification: in model-local frame the truck nose is at
+      // +Z (because the model is then rotated π around Y to render). Use
+      // the model bbox centre to decide front vs rear.
+      const isFront = cand.modelLocal.z > modelCenter.z + 0.1;
+      this.robotaxiWheels.push({ group: steerGroup, isFront });
+    }
+  }
+
+  /**
+   * Attach a small emissive plane at the truck's rear cab. Returns the
+   * mesh so applyRobotaxiModelPose can drive its emissive intensity from
+   * the throttle/brake input. Sized + positioned by the model bbox so it
+   * lines up regardless of which GLB (or fallback) we ended up with.
+   */
+  private attachBrakeLight(model: THREE.Group): THREE.Mesh {
+    const box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const width = Math.max(0.6, size.x * 0.78);
+    const height = Math.max(0.08, size.y * 0.07);
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0x381008,
+      transparent: true,
+      opacity: 0.78,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(width, height),
+      mat,
+    );
+    mesh.name = "robotaxi.brakeLight";
+    // Rear of cab in model-local space (the model is yawed by π later,
+    // so its native -Z = real-world rear-facing surface after install).
+    mesh.position.set(0, size.y * 0.42, -size.z * 0.45);
+    mesh.rotation.y = Math.PI;
+    model.add(mesh);
+    return mesh;
   }
 
   private createFallbackCybertruckModel(): THREE.Group {
@@ -2284,15 +2506,24 @@ export class SurfaceScene implements SceneSlot {
       [-1.02, 0.43, -1.42],
       [1.02, 0.43, -1.42],
     ];
+    const wheelRoles: Array<"fl" | "fr" | "rl" | "rr"> = ["fl", "fr", "rl", "rr"];
     wheelPositions.forEach((pos, i) => {
+      // Tyre + rim live at the same hub; we wrap the tyre as the visible
+      // wheel pivot so the rim follows it (via re-parenting). The rim
+      // gets removed from the candidate list by the 0.45 m cluster filter
+      // — but we still need it parented under the tyre's steer group so
+      // it spins together. Easiest: parent rim under the wheel directly
+      // so the wheel rig's pivot move carries the rim with it.
       const wheel = new THREE.Mesh(wheelGeom, tireMat);
       wheel.name = `fallbackCybertruck.wheel.${i}`;
+      wheel.userData.wheelRole = wheelRoles[i];
       wheel.position.set(...pos);
       group.add(wheel);
       const rim = new THREE.Mesh(rimGeom, rimMat);
       rim.name = `fallbackCybertruck.rim.${i}`;
-      rim.position.set(...pos);
-      group.add(rim);
+      // Rim is positioned relative to the wheel hub once parented.
+      rim.position.set(0, 0, 0);
+      wheel.add(rim);
     });
 
     const underglow = new THREE.Mesh(
