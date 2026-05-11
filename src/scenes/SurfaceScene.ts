@@ -1452,9 +1452,12 @@ export class SurfaceScene implements SceneSlot {
       return;
     }
 
-    if (dist > 5.5) {
+    if (dist > 5.5 || (this.robotaxiTargetSpeed > 0.7 && this.robotaxiSpeed < 0.2)) {
       const mass = physics.chassis.mass();
-      const strength = THREE.MathUtils.clamp((dist - 5.5) * 0.18, 0, 0.85);
+      const routeAccel = THREE.MathUtils.clamp((dist - 5.5) * 1.45, 0, 4.2);
+      const launchAssist =
+        this.robotaxiTargetSpeed > 0.7 && this.robotaxiSpeed < 0.2 ? 1.15 : 0;
+      const strength = Math.max(routeAccel, launchAssist);
       physics.chassis.applyImpulse(
         {
           x: dirX * strength * mass * dt,
