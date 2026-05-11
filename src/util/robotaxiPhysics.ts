@@ -96,7 +96,7 @@ export async function createRobotaxiPhysics(
   const groundExtent = options.groundExtent ?? 240;
   const groundDesc = RAPIER.ColliderDesc.cuboid(groundExtent, 0.5, groundExtent)
     .setTranslation(0, options.groundY - 0.5, 0)
-    .setFriction(1.4)
+    .setFriction(1.15)
     .setRestitution(0.05);
   world.createCollider(groundDesc);
 
@@ -115,8 +115,8 @@ export async function createRobotaxiPhysics(
 
   const chassisDesc = RAPIER.RigidBodyDesc.dynamic()
     .setTranslation(0, spawnY, 0)
-    .setLinearDamping(0.18)
-    .setAngularDamping(2.2)
+    .setLinearDamping(0.12)
+    .setAngularDamping(2.85)
     .setCcdEnabled(true);
   const chassis = world.createRigidBody(chassisDesc);
 
@@ -164,13 +164,13 @@ export async function createRobotaxiPhysics(
   // corners, generous max suspension force so the truck doesn't bottom
   // out, side friction high enough to corner crisply without snap-over.
   for (let i = 0; i < 4; i++) {
-    vehicle.setWheelSuspensionStiffness(i, 26);
-    vehicle.setWheelSuspensionRelaxation(i, 2.4);
-    vehicle.setWheelSuspensionCompression(i, 1.6);
-    vehicle.setWheelMaxSuspensionTravel(i, 0.34);
-    vehicle.setWheelMaxSuspensionForce(i, 9000);
-    vehicle.setWheelFrictionSlip(i, 2.6);
-    vehicle.setWheelSideFrictionStiffness(i, 1.05);
+    vehicle.setWheelSuspensionStiffness(i, 21);
+    vehicle.setWheelSuspensionRelaxation(i, 3.0);
+    vehicle.setWheelSuspensionCompression(i, 2.15);
+    vehicle.setWheelMaxSuspensionTravel(i, 0.42);
+    vehicle.setWheelMaxSuspensionForce(i, 7200);
+    vehicle.setWheelFrictionSlip(i, 2.05);
+    vehicle.setWheelSideFrictionStiffness(i, 0.78);
   }
 
   // Cached scratch values so per-frame reads don't allocate.
@@ -178,9 +178,9 @@ export async function createRobotaxiPhysics(
   const _scratchQuat = new THREE.Quaternion();
   const _scratchEuler = new THREE.Euler();
 
-  const maxEngineForce = 1800;
-  const maxBrake = 220;
-  const maxSteerAngle = 0.55; // ~31°
+  const maxEngineForce = 1350;
+  const maxBrake = 165;
+  const maxSteerAngle = 0.46; // ~26°
 
   return {
     RAPIER,

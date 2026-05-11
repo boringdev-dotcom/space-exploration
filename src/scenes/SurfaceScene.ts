@@ -98,7 +98,13 @@ const ROBOTAXI_TARGET_LENGTH = 4.8;
  *  whole arrival without having to wait, far enough that the Hermite
  *  arrival curve has room to bend gracefully into the curbside pose. */
 const ROBOTAXI_SPAWN_DISTANCE = 20;
-const ROBOTAXI_GROUND_Y = 0.06;
+/** Shared contact plane for walking, floor visuals, Rapier, tracks, and GLBs. */
+const SURFACE_GROUND_Y = 0;
+/** Main floor sits just below the contact plane so decals/tracks never z-fight it. */
+const SURFACE_FLOOR_Y = SURFACE_GROUND_Y - 0.012;
+/** Decals/tracks ride just above the contact plane. */
+const SURFACE_DECAL_Y = SURFACE_GROUND_Y + 0.018;
+const ROBOTAXI_GROUND_Y = SURFACE_GROUND_Y;
 const ROBOTAXI_MODEL_YAW_OFFSET = Math.PI;
 /**
  * Where the truck stops to pick the player up: a curbside spot a few
@@ -109,11 +115,11 @@ const ROBOTAXI_MODEL_YAW_OFFSET = Math.PI;
 const ROBOTAXI_PICKUP_FORWARD = 5.0;
 const ROBOTAXI_PICKUP_SIDE = 2.6;
 /** Top cruise speed on a long straight (m/s). */
-const ROBOTAXI_MAX_SPEED = 6.4;
+const ROBOTAXI_MAX_SPEED = 5.4;
 /** Target speed in the middle of a tight corner. */
-const ROBOTAXI_CORNER_SPEED = 3.2;
+const ROBOTAXI_CORNER_SPEED = 2.55;
 /** Final crawl speed when easing into the pickup or dropoff. */
-const ROBOTAXI_APPROACH_SPEED = 2.0;
+const ROBOTAXI_APPROACH_SPEED = 1.35;
 /** Tour duration before the truck auto-returns to the pickup (sec). */
 const ROBOTAXI_TOUR_DURATION_SEC = 36;
 /**
@@ -144,13 +150,13 @@ const ROBOTAXI_RIDE_MIN_CAMERA_Y = 3.6;
  * during cornering. */
 const ROBOTAXI_CHASSIS_TO_ROOT_Y = 1.38;
 /** Pure-pursuit lookahead distance (m). Bigger = lazier turn-in. */
-const ROBOTAXI_PURSUIT_LOOKAHEAD = 6.5;
+const ROBOTAXI_PURSUIT_LOOKAHEAD = 7.25;
 /** Steering proportional gain mapping heading error → wheel angle. */
-const ROBOTAXI_STEER_GAIN = 1.4;
+const ROBOTAXI_STEER_GAIN = 0.95;
 /** Engine force per (m/s) of speed error when accelerating. */
-const ROBOTAXI_ENGINE_GAIN = 420;
+const ROBOTAXI_ENGINE_GAIN = 310;
 /** Brake impulse per (m/s) of speed overshoot. */
-const ROBOTAXI_BRAKE_GAIN = 70;
+const ROBOTAXI_BRAKE_GAIN = 46;
 /** Pause durations for getting in / getting out (sec). */
 const ROBOTAXI_BOARDING_PAUSE_SEC = 1.5;
 const ROBOTAXI_DROPOFF_PAUSE_SEC = 1.4;
@@ -382,11 +388,12 @@ export class SurfaceScene implements SceneSlot {
    * `applyGroundFloorForPlanet`.
    */
   private readonly _groundFloor: THREE.Mesh = new THREE.Mesh(
-    new THREE.CircleGeometry(220, 96),
+    new THREE.CircleGeometry(360, 160),
     new THREE.MeshStandardMaterial({
       color: 0x6a4a32,
+      vertexColors: true,
       roughness: 0.95,
-      metalness: 0.02,
+      metalness: 0,
       transparent: true,
       opacity: 0.62,
       depthWrite: false,
@@ -437,7 +444,7 @@ export class SurfaceScene implements SceneSlot {
     // catches the rocket + cybertruck against a believable surface.
     this._groundFloor.name = "surface.groundFloor";
     this._groundFloor.rotation.x = -Math.PI / 2;
-    this._groundFloor.position.y = ROBOTAXI_GROUND_Y - 0.012;
+    this._groundFloor.position.y = SURFACE_FLOOR_Y;
     this._groundFloor.receiveShadow = true;
     this.scene.add(this._groundFloor);
 
@@ -544,6 +551,7 @@ export class SurfaceScene implements SceneSlot {
         planet.splatUrl,
       );
       this.buildFallbackSurface(planet);
+      this.applyGroundFloorForPlanet(planet, true);
       this._groundFloor.visible = false;
       this._progress = 1;
       this._status = "ready";
@@ -983,8 +991,8 @@ export class SurfaceScene implements SceneSlot {
         const dzArr = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToArrival = Math.hypot(dxArr, dzArr);
         const reachedCurb =
-          (this.robotaxiPathProgress >= 1 && this.robotaxiSpeed < 0.4)
-          || (distToArrival < 8.5 && this.robotaxiSpeed < 4.5);
+          (this.robotaxiPathProgress >= 0.995 && distToArrival < 2.4 && this.robotaxiSpeed < 1.0)
+          || (distToArrival < 1.2 && this.robotaxiSpeed < 0.85);
         if (reachedCurb) {
           // Stopped at the curb — settle the chassis to the exact arrival
           // pose so the boarding handoff has a clean reference, then begin
@@ -1032,8 +1040,8 @@ export class SurfaceScene implements SceneSlot {
         const dzRet = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToReturn = Math.hypot(dxRet, dzRet);
         const reachedDropoff =
-          (this.robotaxiPathProgress >= 1 && this.robotaxiSpeed < 0.4)
-          || (distToReturn < 8.5 && this.robotaxiSpeed < 4.5);
+          (this.robotaxiPathProgress >= 0.995 && distToReturn < 2.4 && this.robotaxiSpeed < 1.0)
+          || (distToReturn < 1.2 && this.robotaxiSpeed < 0.85);
         if (reachedDropoff) {
           this.physics.teleport(
             this._taxiScratchA.set(
@@ -1151,10 +1159,14 @@ export class SurfaceScene implements SceneSlot {
     );
 
     // Lookahead target point on the path.
+    const lookaheadDistance = this.robotaxiLookaheadDistance(
+      currentSpeed,
+      stopAtEnd ? this.robotaxiPathProgress : 0.5,
+    );
     const lookaheadParam = Math.min(
       1,
       this.robotaxiPathProgress
-        + ROBOTAXI_PURSUIT_LOOKAHEAD / Math.max(0.5, this.robotaxiPathLength),
+        + lookaheadDistance / Math.max(0.5, this.robotaxiPathLength),
     );
     this.sampleHermite(
       this._robotaxiPathP0,
@@ -1166,7 +1178,7 @@ export class SurfaceScene implements SceneSlot {
     );
 
     // Steering: pure pursuit toward the lookahead point in XZ plane.
-    this.applyPursuitSteering(physics, heading);
+    this.applyPursuitSteering(physics, heading, dt);
 
     // Speed control: shape target based on segment progress + curvature,
     // then PID-ish push toward it via engine force / brake.
@@ -1188,7 +1200,7 @@ export class SurfaceScene implements SceneSlot {
     const stopForce = stopAtEnd
       ? smoothstep(0.94, 1.0, this.robotaxiPathProgress)
       : 0;
-    this.robotaxiTargetSpeed = baseTarget * (1 - stopForce);
+    let desiredTargetSpeed = baseTarget * (1 - stopForce);
     if (stopAtEnd) {
       const distToEnd = Math.hypot(
         this._taxiScratchD.x - this._robotaxiPathP1.x,
@@ -1199,19 +1211,25 @@ export class SurfaceScene implements SceneSlot {
         0,
         ROBOTAXI_APPROACH_SPEED,
       );
-      this.robotaxiTargetSpeed = Math.min(
-        this.robotaxiTargetSpeed,
+      desiredTargetSpeed = Math.min(
+        desiredTargetSpeed,
         distanceTarget,
       );
     }
+    this.robotaxiTargetSpeed = damp(
+      this.robotaxiTargetSpeed,
+      desiredTargetSpeed,
+      desiredTargetSpeed < this.robotaxiTargetSpeed ? 5.4 : 2.6,
+      dt,
+    );
 
-    this.applySpeedControl(physics, currentSpeed);
+    this.applySpeedControl(physics, currentSpeed, dt);
 
     // Soft lateral damping to suppress small drift when the path is straight.
-    physics.applyLateralDamping(4.5, dt);
+    physics.applyLateralDamping(1.65, dt);
 
     physics.step(dt);
-    this.stabilizePhysicsChassis(physics, dt);
+    this.recoverPhysicsChassisIfNeeded(physics, dt);
     this.syncRootFromPhysics();
     this.applyRobotaxiModelPose(dt, elapsed);
   }
@@ -1247,13 +1265,14 @@ export class SurfaceScene implements SceneSlot {
     );
 
     // Lookahead point on the tour loop.
+    const lookaheadDistance = this.robotaxiLookaheadDistance(currentSpeed, 0.5);
     const lookaheadPhase =
       (this.robotaxiTourPhase
-        + ROBOTAXI_PURSUIT_LOOKAHEAD / ROBOTAXI_TOUR_PATH_LENGTH)
+        + lookaheadDistance / ROBOTAXI_TOUR_PATH_LENGTH)
       % 1;
     this.sampleRobotaxiTourPoint(lookaheadPhase, this._taxiScratchC);
 
-    this.applyPursuitSteering(physics, heading);
+    this.applyPursuitSteering(physics, heading, dt);
 
     // Target speed shaped by local curvature + tour envelope.
     const tourProgress = this.robotaxiTourElapsed / ROBOTAXI_TOUR_DURATION_SEC;
@@ -1266,17 +1285,23 @@ export class SurfaceScene implements SceneSlot {
       ROBOTAXI_MAX_SPEED,
       1 - curvature,
     );
-    this.robotaxiTargetSpeed = THREE.MathUtils.lerp(
+    const desiredTargetSpeed = THREE.MathUtils.lerp(
       ROBOTAXI_APPROACH_SPEED,
       speedCeiling,
       cruiseWindow,
     );
+    this.robotaxiTargetSpeed = damp(
+      this.robotaxiTargetSpeed,
+      desiredTargetSpeed,
+      desiredTargetSpeed < this.robotaxiTargetSpeed ? 4.6 : 2.4,
+      dt,
+    );
 
-    this.applySpeedControl(physics, currentSpeed);
-    physics.applyLateralDamping(4.0, dt);
+    this.applySpeedControl(physics, currentSpeed, dt);
+    physics.applyLateralDamping(1.45, dt);
 
     physics.step(dt);
-    this.stabilizePhysicsChassis(physics, dt);
+    this.recoverPhysicsChassisIfNeeded(physics, dt);
     this.syncRootFromPhysics();
     this.applyRobotaxiModelPose(dt, elapsed);
   }
@@ -1313,6 +1338,7 @@ export class SurfaceScene implements SceneSlot {
   private applyPursuitSteering(
     physics: RobotaxiPhysics,
     heading: number,
+    dt: number,
   ): void {
     physics.readPosition(this._taxiScratchD);
     const dx = this._taxiScratchC.x - this._taxiScratchD.x;
@@ -1338,7 +1364,7 @@ export class SurfaceScene implements SceneSlot {
       this.robotaxiSteerInput,
       steer / physics.maxSteerAngle,
       8,
-      1 / 60,
+      dt,
     );
   }
 
@@ -1354,72 +1380,90 @@ export class SurfaceScene implements SceneSlot {
   private applySpeedControl(
     physics: RobotaxiPhysics,
     currentSpeed: number,
+    dt: number,
   ): void {
     const speedError = this.robotaxiTargetSpeed - currentSpeed;
     if (speedError > 0.05) {
       const force = speedError * ROBOTAXI_ENGINE_GAIN;
       physics.setEngineForce(Math.min(physics.maxEngineForce, force));
       physics.setBrake(0);
-      this.robotaxiAccelInput = damp(this.robotaxiAccelInput, 1, 6, 1 / 60);
+      this.robotaxiAccelInput = damp(this.robotaxiAccelInput, 1, 6, dt);
     } else if (speedError < -0.05) {
       physics.setEngineForce(0);
       physics.setBrake(Math.min(physics.maxBrake, -speedError * ROBOTAXI_BRAKE_GAIN));
-      this.robotaxiAccelInput = damp(this.robotaxiAccelInput, -1, 6, 1 / 60);
+      this.robotaxiAccelInput = damp(this.robotaxiAccelInput, -1, 6, dt);
     } else {
       physics.setEngineForce(0);
       physics.setBrake(0);
-      this.robotaxiAccelInput = damp(this.robotaxiAccelInput, 0, 4, 1 / 60);
+      this.robotaxiAccelInput = damp(this.robotaxiAccelInput, 0, 4, dt);
     }
   }
 
   /**
-   * Keep Rapier's chassis honest against the authored pursuit target. The
-   * raycast vehicle still supplies wheel contact and suspension, but this
-   * prevents a bad steering frame from launching the truck away from Mars.
+   * Speed-aware pursuit lookahead. A real vehicle doesn't stare at a fixed
+   * point on the ground: it looks farther down the road as speed rises, but
+   * shortens the look when docking into the curbside stop.
    */
-  private stabilizePhysicsChassis(physics: RobotaxiPhysics, dt: number): void {
+  private robotaxiLookaheadDistance(speed: number, endpointProgress: number): number {
+    const speed01 = THREE.MathUtils.clamp(speed / ROBOTAXI_MAX_SPEED, 0, 1);
+    const cruiseLookahead = THREE.MathUtils.lerp(
+      ROBOTAXI_PURSUIT_LOOKAHEAD * 0.72,
+      ROBOTAXI_PURSUIT_LOOKAHEAD * 1.55,
+      speed01,
+    );
+    const docking = smoothstep(0.76, 0.98, endpointProgress);
+    return THREE.MathUtils.lerp(cruiseLookahead, 3.2, docking);
+  }
+
+  /**
+   * Let Rapier own normal vehicle motion. This is only a safety net for
+   * pathological frames (falling through the floor, WASM hiccup, or a very
+   * wide slide). Mild route drift gets a tiny impulse toward the lookahead;
+   * severe height/route errors re-seat the chassis rather than exploding.
+   */
+  private recoverPhysicsChassisIfNeeded(physics: RobotaxiPhysics, dt: number): void {
     physics.readPosition(this._taxiScratchD);
     const dx = this._taxiScratchC.x - this._taxiScratchD.x;
     const dz = this._taxiScratchC.z - this._taxiScratchD.z;
     const dist = Math.max(1e-3, Math.hypot(dx, dz));
     const dirX = dx / dist;
     const dirZ = dz / dist;
-    const desiredHeading = Math.atan2(dirX, -dirZ);
-    const desiredSpeed = Math.max(
-      0,
-      Math.min(ROBOTAXI_MAX_SPEED, this.robotaxiTargetSpeed),
-    );
-    const velBlend = 1 - Math.exp(-dt * 3.2);
-    const linvel = physics.chassis.linvel();
     const targetY = ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y;
     const yError = targetY - this._taxiScratchD.y;
 
-    physics.chassis.setLinvel(
-      {
-        x: THREE.MathUtils.lerp(linvel.x, dirX * desiredSpeed, velBlend),
-        y: Math.abs(yError) > 0.08 ? THREE.MathUtils.clamp(yError * 5, -1.8, 1.8) : linvel.y * 0.45,
-        z: THREE.MathUtils.lerp(linvel.z, dirZ * desiredSpeed, velBlend),
-      },
-      true,
-    );
-
-    if (Math.abs(yError) > 0.45) {
+    if (Math.abs(yError) > 1.15 || dist > 16) {
+      const safeHeading =
+        dist > 0.2 ? Math.atan2(dirX, -dirZ) : this.robotaxiHeading;
       physics.chassis.setTranslation(
         {
-          x: this._taxiScratchD.x,
+          x: this._taxiScratchD.x + dirX * Math.min(dist, 4),
           y: targetY,
-          z: this._taxiScratchD.z,
+          z: this._taxiScratchD.z + dirZ * Math.min(dist, 4),
+        },
+        true,
+      );
+      const half = safeHeading * 0.5;
+      physics.chassis.setRotation(
+        { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) },
+        true,
+      );
+      physics.chassis.setLinvel({ x: 0, y: 0, z: 0 }, true);
+      physics.chassis.setAngvel({ x: 0, y: 0, z: 0 }, true);
+      return;
+    }
+
+    if (dist > 5.5) {
+      const mass = physics.chassis.mass();
+      const strength = THREE.MathUtils.clamp((dist - 5.5) * 0.18, 0, 0.85);
+      physics.chassis.applyImpulse(
+        {
+          x: dirX * strength * mass * dt,
+          y: 0,
+          z: dirZ * strength * mass * dt,
         },
         true,
       );
     }
-
-    const yaw = dampAngle(physics.heading(), desiredHeading, 4.6, dt);
-    const half = yaw * 0.5;
-    physics.chassis.setRotation(
-      { x: 0, y: Math.sin(half), z: 0, w: Math.cos(half) },
-      true,
-    );
   }
 
   /** Copy chassis world transform onto the visible robotaxiRoot. */
@@ -2020,38 +2064,193 @@ export class SurfaceScene implements SceneSlot {
         CYBERTRUCK_GLB_URL,
         ROBOTAXI_TARGET_LENGTH,
       );
-      model.name = "surface.robotaxi.cybertruck";
-      model.rotation.y = ROBOTAXI_MODEL_YAW_OFFSET;
-      model.traverse((obj) => {
-        const mesh = obj as THREE.Mesh;
-        if (!mesh.isMesh) return;
-        mesh.castShadow = false;
-        mesh.receiveShadow = false;
-      });
-
-      // Ground the model against the root contact plane. Physics owns any
-      // suspension lift; adding another visual clearance made the truck hover.
-      const box = new THREE.Box3().setFromObject(model);
-      if (Number.isFinite(box.min.y)) {
-        model.position.y += -box.min.y;
-      }
-      this.robotaxiModelBaseY = model.position.y;
-      this.robotaxiModel = model;
-      this.robotaxiRoot.add(model);
-      if (this.robotaxiState !== "idle") {
-        this.robotaxiRoot.visible = true;
-        this.applyRobotaxiModelPose(1 / 60, this.robotaxiTourElapsed);
-        // If the player summoned before the GLB finished loading, apply
-        // the current spawn-fade level immediately so the truck still
-        // ramps in instead of appearing at full opacity mid-drive.
-        this.applyRobotaxiSpawnFade(this.robotaxiSpawnFade);
-      }
+      this.installRobotaxiModel(model, "surface.robotaxi.cybertruck");
     } catch (err) {
-      console.warn("[SurfaceScene] Cybertruck GLB failed", err);
-      // If the load fails the state machine still progresses but the
-      // truck is invisible — better than locking the player out of the
-      // tour, especially on slow networks.
+      console.warn(
+        "[SurfaceScene] Cybertruck GLB failed; using procedural robotaxi fallback",
+        err,
+      );
+      this.installRobotaxiModel(
+        this.createFallbackCybertruckModel(),
+        "surface.robotaxi.cybertruckFallback",
+      );
     }
+  }
+
+  private installRobotaxiModel(model: THREE.Group, name: string): void {
+    model.name = name;
+    model.rotation.y = ROBOTAXI_MODEL_YAW_OFFSET;
+    model.traverse((obj) => {
+      const mesh = obj as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      mesh.castShadow = false;
+      mesh.receiveShadow = false;
+    });
+
+    // Ground the model against the root contact plane. Physics owns any
+    // suspension lift; adding another visual clearance made the truck hover.
+    const box = new THREE.Box3().setFromObject(model);
+    if (Number.isFinite(box.min.y)) {
+      model.position.y += -box.min.y;
+    }
+    this.robotaxiModelBaseY = model.position.y;
+    this.robotaxiModel = model;
+    this.robotaxiRoot.add(model);
+    if (this.robotaxiState !== "idle") {
+      this.robotaxiRoot.visible = true;
+      this.applyRobotaxiModelPose(1 / 60, this.robotaxiTourElapsed);
+      // If the player summoned before the GLB/fallback finished loading,
+      // apply the current spawn-fade level immediately so the truck still
+      // ramps in instead of appearing at full opacity mid-drive.
+      this.applyRobotaxiSpawnFade(this.robotaxiSpawnFade);
+    }
+  }
+
+  private createFallbackCybertruckModel(): THREE.Group {
+    const group = new THREE.Group();
+
+    const bodyMat = new THREE.MeshStandardMaterial({
+      color: 0x8d9699,
+      roughness: 0.34,
+      metalness: 0.78,
+      emissive: 0x111417,
+      emissiveIntensity: 0.08,
+    });
+    const glassMat = new THREE.MeshStandardMaterial({
+      color: 0x0b1720,
+      roughness: 0.18,
+      metalness: 0.25,
+      transparent: true,
+      opacity: 0.82,
+      emissive: 0x062234,
+      emissiveIntensity: 0.18,
+    });
+    const tireMat = new THREE.MeshStandardMaterial({
+      color: 0x070707,
+      roughness: 0.86,
+      metalness: 0.08,
+    });
+    const rimMat = new THREE.MeshStandardMaterial({
+      color: 0xb8c1c4,
+      roughness: 0.38,
+      metalness: 0.68,
+    });
+    const headlightMat = new THREE.MeshBasicMaterial({
+      color: 0xdff8ff,
+      transparent: true,
+      opacity: 0.86,
+    });
+    const tailMat = new THREE.MeshBasicMaterial({
+      color: 0xff3e2f,
+      transparent: true,
+      opacity: 0.8,
+    });
+
+    const body = new THREE.Mesh(
+      this.createCybertruckBodyGeometry(),
+      bodyMat,
+    );
+    body.name = "fallbackCybertruck.body";
+    group.add(body);
+
+    const cabin = new THREE.Mesh(
+      new THREE.BoxGeometry(1.72, 0.05, 1.8),
+      glassMat,
+    );
+    cabin.name = "fallbackCybertruck.glassRoof";
+    cabin.position.set(0, 1.12, 0.12);
+    cabin.rotation.x = -0.34;
+    group.add(cabin);
+
+    const windshield = new THREE.Mesh(
+      new THREE.BoxGeometry(1.65, 0.045, 0.72),
+      glassMat,
+    );
+    windshield.name = "fallbackCybertruck.windshield";
+    windshield.position.set(0, 0.97, 1.1);
+    windshield.rotation.x = -0.72;
+    group.add(windshield);
+
+    const rearGlass = new THREE.Mesh(
+      new THREE.BoxGeometry(1.6, 0.045, 0.82),
+      glassMat,
+    );
+    rearGlass.name = "fallbackCybertruck.rearGlass";
+    rearGlass.position.set(0, 0.94, -0.92);
+    rearGlass.rotation.x = 0.58;
+    group.add(rearGlass);
+
+    const bumperGeom = new THREE.BoxGeometry(2.04, 0.16, 0.16);
+    const frontBar = new THREE.Mesh(bumperGeom, headlightMat);
+    frontBar.name = "fallbackCybertruck.frontLightBar";
+    frontBar.position.set(0, 0.72, 2.36);
+    group.add(frontBar);
+    const rearBar = new THREE.Mesh(bumperGeom, tailMat);
+    rearBar.name = "fallbackCybertruck.rearLightBar";
+    rearBar.position.set(0, 0.66, -2.34);
+    group.add(rearBar);
+
+    const wheelGeom = new THREE.CylinderGeometry(0.42, 0.42, 0.34, 32);
+    wheelGeom.rotateZ(Math.PI / 2);
+    const rimGeom = new THREE.CylinderGeometry(0.22, 0.22, 0.36, 24);
+    rimGeom.rotateZ(Math.PI / 2);
+    const wheelPositions: THREE.Vector3Tuple[] = [
+      [-1.02, 0.43, 1.42],
+      [1.02, 0.43, 1.42],
+      [-1.02, 0.43, -1.42],
+      [1.02, 0.43, -1.42],
+    ];
+    wheelPositions.forEach((pos, i) => {
+      const wheel = new THREE.Mesh(wheelGeom, tireMat);
+      wheel.name = `fallbackCybertruck.wheel.${i}`;
+      wheel.position.set(...pos);
+      group.add(wheel);
+      const rim = new THREE.Mesh(rimGeom, rimMat);
+      rim.name = `fallbackCybertruck.rim.${i}`;
+      rim.position.set(...pos);
+      group.add(rim);
+    });
+
+    const underglow = new THREE.Mesh(
+      new THREE.BoxGeometry(1.8, 0.035, 3.6),
+      new THREE.MeshBasicMaterial({
+        color: 0x5fe9ff,
+        transparent: true,
+        opacity: 0.18,
+      }),
+    );
+    underglow.name = "fallbackCybertruck.underglow";
+    underglow.position.set(0, 0.18, 0);
+    group.add(underglow);
+
+    return group;
+  }
+
+  private createCybertruckBodyGeometry(): THREE.BufferGeometry {
+    const hw = 1.05;
+    const hz = 2.4;
+    const vertices = new Float32Array([
+      -hw, 0.38, -hz,   hw, 0.38, -hz,   hw, 0.38, hz,   -hw, 0.38, hz,
+      -hw, 0.72, -hz,   hw, 0.72, -hz,   hw, 0.72, hz,   -hw, 0.72, hz,
+      -0.86, 1.38, -0.3,   0.86, 1.38, -0.3,
+    ]);
+    const indices = [
+      0, 2, 1, 0, 3, 2, // lower pan
+      0, 1, 5, 0, 5, 4, // rear face
+      2, 3, 7, 2, 7, 6, // front face
+      0, 4, 7, 0, 7, 3, // left lower side
+      1, 2, 6, 1, 6, 5, // right lower side
+      4, 5, 9, 4, 9, 8, // rear roof slope
+      5, 6, 9, // right hood slope
+      6, 7, 8, 6, 8, 9, // windshield/hood plane
+      7, 4, 8, // left hood slope
+      4, 7, 6, 4, 6, 5, // belt plane under glass
+    ];
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute("position", new THREE.BufferAttribute(vertices, 3));
+    geometry.setIndex(indices);
+    geometry.computeVertexNormals();
+    return geometry;
   }
 
   getRocketInteraction(): SurfaceRocketInteractionSnapshot {
@@ -2171,15 +2370,25 @@ export class SurfaceScene implements SceneSlot {
    * now every body benefits from at least a faint disc to anchor the
    * GLBs.
    */
-  private applyGroundFloorForPlanet(planet: Planet): void {
+  private applyGroundFloorForPlanet(planet: Planet, mockFallback = false): void {
     const mat = this._groundFloor.material as THREE.MeshStandardMaterial;
-    mat.color = new THREE.Color(planet.theme.dark);
-    mat.color.lerp(new THREE.Color(planet.theme.mid), planet.id === "mars" ? 0.62 : 0.35);
+    const dark = new THREE.Color(planet.theme.dark);
+    const mid = new THREE.Color(planet.theme.mid);
+    const light = new THREE.Color(planet.theme.light);
+    mat.color = new THREE.Color(0xffffff);
+    this.paintRadialGroundColors(
+      this._groundFloor.geometry as THREE.BufferGeometry,
+      mid.clone().lerp(light, planet.id === "mars" ? 0.18 : 0.1),
+      dark.clone().lerp(mid, planet.id === "mars" ? 0.28 : 0.18),
+      planet.id,
+    );
     // Mars ('mars') wants a bolder rust; Luna ('luna') wants a soft
     // grey that fades into the splat's existing regolith. Other worlds
     // get a moderate opacity by default.
     mat.opacity =
-      planet.id === "mars" ? 0.58 : planet.id === "luna" ? 0.48 : 0.68;
+      mockFallback
+        ? 0.94
+        : planet.id === "mars" ? 0.58 : planet.id === "luna" ? 0.48 : 0.68;
     mat.roughness = planet.id === "mars" ? 1 : 0.95;
     mat.metalness = 0;
     mat.depthWrite = false;
@@ -2187,23 +2396,94 @@ export class SurfaceScene implements SceneSlot {
     this._groundFloor.visible = true;
   }
 
-  private buildRobotaxiTracks(_center: THREE.Vector3): void {
+  private paintRadialGroundColors(
+    geometry: THREE.BufferGeometry,
+    centerColor: THREE.Color,
+    edgeColor: THREE.Color,
+    seedKey: string,
+  ): void {
+    const pos = geometry.getAttribute("position");
+    if (!pos) return;
+    const colors = new Float32Array(pos.count * 3);
+    const seed = hashString(seedKey) * 0.000001;
+    const radius = 360;
+    for (let i = 0; i < pos.count; i++) {
+      const x = pos.getX(i);
+      const y = pos.getY(i);
+      const radial = Math.min(1, Math.hypot(x, y) / radius);
+      const band =
+        0.04 * Math.sin(x * 0.19 + seed)
+        + 0.035 * Math.sin(y * 0.23 + seed * 2.1)
+        + 0.025 * Math.sin((x + y) * 0.075 + seed * 3.7);
+      const dust = THREE.MathUtils.clamp(radial + band, 0, 1);
+      const c = centerColor.clone().lerp(edgeColor, dust);
+      colors[i * 3 + 0] = c.r;
+      colors[i * 3 + 1] = c.g;
+      colors[i * 3 + 2] = c.b;
+    }
+    geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+    geometry.getAttribute("color").needsUpdate = true;
+  }
+
+  private buildRobotaxiTracks(center: THREE.Vector3): void {
     this.clearRobotaxiTracks();
     if (this.currentPlanetId !== "mars") return;
 
+    const roadMat = new THREE.MeshBasicMaterial({
+      color: 0x7b2d14,
+      transparent: true,
+      opacity: 0.13,
+      depthWrite: false,
+      side: THREE.DoubleSide,
+    });
     const trackMat = new THREE.LineBasicMaterial({
       color: 0x2b0d05,
       transparent: true,
-      opacity: 0.34,
+      opacity: 0.42,
       depthWrite: false,
     });
     const dustMat = new THREE.MeshBasicMaterial({
       color: 0x5e2412,
       transparent: true,
-      opacity: 0.16,
+      opacity: 0.18,
       depthWrite: false,
       side: THREE.DoubleSide,
     });
+
+    // A soft drivable dust lane under the full tour loop. This makes the
+    // robotaxi feel like it has a floor/road instead of floating over the
+    // splat, but stays translucent enough to blend with real SPZ terrain.
+    const laneGeom = new THREE.CircleGeometry(1, 32);
+    for (let i = 0; i < 40; i++) {
+      const phase = i / 40;
+      const p = this.sampleRobotaxiTourPoint(phase, this._taxiScratchA).clone();
+      const ahead = this.sampleRobotaxiTourPoint(
+        (phase + 0.006) % 1,
+        this._taxiScratchB,
+      );
+      const tx = ahead.x - p.x;
+      const tz = ahead.z - p.z;
+      const yaw = Math.atan2(tx, -tz);
+      const lane = new THREE.Mesh(laneGeom, roadMat);
+      lane.position.set(p.x, SURFACE_DECAL_Y - 0.006, p.z);
+      lane.rotation.x = -Math.PI / 2;
+      lane.rotation.z = -yaw;
+      lane.scale.set(4.1, 1.45, 1);
+      this.robotaxiTrackGroup.add(lane);
+    }
+
+    // Curbside pickup/dropoff patch where the truck comes to rest.
+    const pad = new THREE.Mesh(new THREE.CircleGeometry(4.4, 56), roadMat);
+    pad.position.set(this._robotaxiArrivalPos.x, SURFACE_DECAL_Y - 0.004, this._robotaxiArrivalPos.z);
+    pad.rotation.x = -Math.PI / 2;
+    pad.scale.set(1.35, 0.72, 1);
+    this.robotaxiTrackGroup.add(pad);
+
+    const pickupDust = new THREE.Mesh(new THREE.CircleGeometry(2.8, 48), dustMat);
+    pickupDust.position.set(center.x, SURFACE_DECAL_Y - 0.002, center.z);
+    pickupDust.rotation.x = -Math.PI / 2;
+    pickupDust.scale.set(1.25, 0.5, 1);
+    this.robotaxiTrackGroup.add(pickupDust);
 
     // Two wheel ruts offset to either side of the centerline along the
     // racetrack path. We trace the same rounded-rectangle the truck
@@ -2225,7 +2505,7 @@ export class SurfaceScene implements SceneSlot {
         points.push(
           new THREE.Vector3(
             p.x + sx * wheelOffset,
-            ROBOTAXI_GROUND_Y + 0.018,
+            SURFACE_DECAL_Y + 0.006,
             p.z + sz * wheelOffset,
           ),
         );
@@ -2247,7 +2527,7 @@ export class SurfaceScene implements SceneSlot {
       const tz = ahead.z - p.z;
       const yaw = Math.atan2(tx, -tz);
       const dust = new THREE.Mesh(dustGeom, dustMat);
-      dust.position.set(p.x, ROBOTAXI_GROUND_Y + 0.012, p.z);
+      dust.position.set(p.x, SURFACE_DECAL_Y, p.z);
       dust.rotation.x = -Math.PI / 2;
       const scale = 1.2 + 0.45 * Math.sin(i * 2.41);
       // For a CircleGeometry rotated -π/2 about X (now lying flat on the
@@ -2295,11 +2575,15 @@ export class SurfaceScene implements SceneSlot {
     const pos = groundGeom.attributes.position;
     const nearTint = midColor.clone().lerp(lightColor, 0.25);
     const farTint = midColor.clone().lerp(darkColor, 0.55);
+    const groundSeed = hashString(`${planet.id}:fallback-ground`) * 0.000001;
     for (let i = 0; i < pos.count; i++) {
       const x = pos.getX(i);
       const y = pos.getY(i);
       const r = Math.min(1, Math.hypot(x, y) / 420);
-      const jitter = 1 - Math.random() * 0.08;
+      const jitter =
+        0.94
+        + 0.04 * Math.sin(x * 0.17 + groundSeed)
+        + 0.025 * Math.sin(y * 0.31 + groundSeed * 1.9);
       const c = nearTint.clone().lerp(farTint, r).multiplyScalar(jitter);
       groundColors[i * 3 + 0] = c.r;
       groundColors[i * 3 + 1] = c.g;
@@ -2313,7 +2597,7 @@ export class SurfaceScene implements SceneSlot {
     });
     const ground = new THREE.Mesh(groundGeom, groundMat);
     ground.rotation.x = -Math.PI / 2;
-    ground.position.y = -0.02;
+    ground.position.y = SURFACE_FLOOR_Y;
     ground.receiveShadow = false;
     group.add(ground);
 
@@ -2336,7 +2620,11 @@ export class SurfaceScene implements SceneSlot {
       // near the rocket pad stays clear.
       const a = rng() * Math.PI * 2;
       const radius = 14 + rng() * 106;
-      rockPos.set(Math.cos(a) * radius, -0.25 + rng() * 0.35, Math.sin(a) * radius);
+      rockPos.set(
+        Math.cos(a) * radius,
+        SURFACE_GROUND_Y - 0.22 + rng() * 0.32,
+        Math.sin(a) * radius,
+      );
       rockQuat.setFromEuler(
         new THREE.Euler(rng() * 0.6, rng() * Math.PI * 2, rng() * 0.6),
       );
