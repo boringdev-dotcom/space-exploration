@@ -334,6 +334,14 @@ export class SurfaceScene implements SceneSlot {
   private robotaxiTourPhase = 0;
   /** Counts down boarding/dropoff pauses. */
   private robotaxiPhaseTimer = 0;
+  /** Counts up while the truck is in a single drive phase (arriving /
+   *  cruising / returning / departing). Reset on phase changes by the
+   *  phase-aware code below. Used as a stall watchdog. */
+  private robotaxiPhaseElapsed = 0;
+  /** Tracks the last value of robotaxiPhase across frames so we can
+   *  reset the elapsed timer on phase transitions without forcing every
+   *  callsite to remember to do it. */
+  private robotaxiLastPhase: RobotaxiPhase = "idle";
 
   /** Forward speed (m/s). Approaches `robotaxiTargetSpeed` each frame. */
   private robotaxiSpeed = 0;
@@ -893,6 +901,10 @@ export class SurfaceScene implements SceneSlot {
     this.robotaxiTourPhase = 0;
     this.robotaxiPathProgress = 0;
     this.robotaxiPhaseTimer = 0;
+    // Watchdog: ramp up while we're in a single drive phase so an
+    // unexpected stall (rare physics edge case) can't lock the player
+    // out of the loop. updateRobotaxi resets this on phase changes.
+    this.robotaxiPhaseElapsed = 0;
     this.robotaxiSpeed = 0;
     this.robotaxiTargetSpeed = ROBOTAXI_MAX_SPEED;
     this.robotaxiSteerInput = 0;
@@ -1011,6 +1023,17 @@ export class SurfaceScene implements SceneSlot {
       return;
     }
 
+    // Watchdog: track time-in-current-phase. If a drive phase has been
+    // running for too long, force the next transition so a rare physics
+    // edge case (e.g. the truck wedged itself off-spline) can't lock the
+    // player out of the loop.
+    if (this.robotaxiPhase !== this.robotaxiLastPhase) {
+      this.robotaxiPhaseElapsed = 0;
+      this.robotaxiLastPhase = this.robotaxiPhase;
+    } else {
+      this.robotaxiPhaseElapsed += dt;
+    }
+
     switch (this.robotaxiPhase) {
       case "arriving": {
         this.tickPhysicsAlongHermite(dt, elapsed, /*stopAtEnd=*/ true);
@@ -1021,8 +1044,10 @@ export class SurfaceScene implements SceneSlot {
         // close to the curb and slow enough that the docking pose looks
         // stable. We no longer gate this on spline progress because the
         // monotonic-forward sampling can saturate at 1.0 while the truck
-        // is still being pulled sideways onto the curve.
-        const reachedCurb = distToArrival < 1.8 && this.robotaxiSpeed < 1.6;
+        // is still being pulled sideways onto the curve. Watchdog ensures
+        // we transition after at most 14 s even on a wild physics edge.
+        const watchdog = this.robotaxiPhaseElapsed > 14;
+        const reachedCurb = (distToArrival < 1.8 && this.robotaxiSpeed < 1.6) || watchdog;
         if (reachedCurb) {
           // Stopped at the curb — settle the chassis to the exact arrival
           // pose so the boarding handoff has a clean reference, then begin
@@ -1069,10 +1094,11 @@ export class SurfaceScene implements SceneSlot {
         const dxRet = this.robotaxiRoot.position.x - this._robotaxiArrivalPos.x;
         const dzRet = this.robotaxiRoot.position.z - this._robotaxiArrivalPos.z;
         const distToReturn = Math.hypot(dxRet, dzRet);
-        // Same physical-distance gate as the arriving phase — see the
-        // matching comment above for why we don't require pathProgress to
-        // be fully saturated here.
-        const reachedDropoff = distToReturn < 1.8 && this.robotaxiSpeed < 1.6;
+        // Same physical-distance gate as the arriving phase plus a 14 s
+        // watchdog so a misbehaving return can never trap the player.
+        const watchdog = this.robotaxiPhaseElapsed > 14;
+        const reachedDropoff =
+          (distToReturn < 1.8 && this.robotaxiSpeed < 1.6) || watchdog;
         if (reachedDropoff) {
           this.physics.teleport(
             this._taxiScratchA.set(
@@ -1106,14 +1132,20 @@ export class SurfaceScene implements SceneSlot {
 
       case "departing":
         this.tickPhysicsAlongHermite(dt, elapsed, /*stopAtEnd=*/ false);
-        // Start the fade-out at the back third of the departure path.
+        // Start the fade-out at the back third of the departure path, or
+        // after 8 s of departure regardless of how far the chassis has
+        // actually travelled. Without the watchdog a stuck truck would
+        // never reach the fade-trigger.
         if (
-          this.robotaxiPathProgress > 0.65
+          (this.robotaxiPathProgress > 0.65 || this.robotaxiPhaseElapsed > 8)
           && this.robotaxiSpawnFadeTarget !== 0
         ) {
           this.robotaxiSpawnFadeTarget = 0;
         }
-        if (this.robotaxiPathProgress >= 1 && this.robotaxiSpawnFade <= 0.02) {
+        if (
+          (this.robotaxiPathProgress >= 1 && this.robotaxiSpawnFade <= 0.02)
+          || (this.robotaxiPhaseElapsed > 12 && this.robotaxiSpawnFade <= 0.05)
+        ) {
           this.robotaxiPhase = "idle";
           this.robotaxiState = "idle";
           this.robotaxiRoot.visible = false;

@@ -345,13 +345,24 @@ export function mountSurfaceHud(args: Args): () => void {
   rocketPrompt?.addEventListener("click", onBoardClick);
 
   const onRobotaxiClick = (): void => {
-    playCue("click");
     const snap = args.getRobotaxiSnapshot?.();
     if (!snap) return;
     if (snap.state === "idle") {
+      playCue("click");
       args.onRequestRobotaxi?.();
-    } else {
+    } else if (snap.state === "touring") {
+      // The button doubles as an "End Tour" affordance only while the
+      // ride is actively running. During the inbound summoning arc and
+      // the final parking/departure sequence, a misclick used to cancel
+      // the tour — which surprised users and looked like the truck was
+      // refusing to drive the loop. Now the button is a no-op in those
+      // phases; the player can still hard-cancel with ESC.
+      playCue("click");
       args.onEndRobotaxi?.();
+    } else {
+      // summoning / ending — soft no-op with the cancel cue so the
+      // player knows the click was received.
+      playCue("alert");
     }
   };
   robotaxiPrompt?.addEventListener("click", onRobotaxiClick);
@@ -394,15 +405,23 @@ export function mountSurfaceHud(args: Args): () => void {
       event.preventDefault();
       openPlanner();
     }
-    // R toggles the robotaxi: summon if idle, end tour if active.
+    // R toggles the robotaxi: summon if idle, end tour while touring.
+    // During the summoning approach or the post-tour parking/departure
+    // R is a no-op (matches the HUD button) so an accidental keypress
+    // doesn't cancel the inbound trip. Use ESC for hard cancel.
     if (event.code === "KeyR" && !event.repeat && !plannerOpen) {
       const snap = args.getRobotaxiSnapshot?.();
       if (!snap) return;
-      if (!snap.available && snap.state === "idle") return;
-      event.preventDefault();
-      playCue("click");
-      if (snap.state === "idle") args.onRequestRobotaxi?.();
-      else args.onEndRobotaxi?.();
+      if (snap.state === "idle") {
+        if (!snap.available) return;
+        event.preventDefault();
+        playCue("click");
+        args.onRequestRobotaxi?.();
+      } else if (snap.state === "touring") {
+        event.preventDefault();
+        playCue("click");
+        args.onEndRobotaxi?.();
+      }
     }
   };
   window.addEventListener("keydown", onKeyDown);
