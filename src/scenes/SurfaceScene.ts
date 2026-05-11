@@ -1207,15 +1207,22 @@ export class SurfaceScene implements SceneSlot {
       ? THREE.MathUtils.lerp(ROBOTAXI_APPROACH_SPEED, speedCeiling, cruiseWindow)
       : speedCeiling * cruiseWindow
         + ROBOTAXI_APPROACH_SPEED * (1 - cruiseWindow);
+    const distToEnd = stopAtEnd
+      ? Math.hypot(
+        this._taxiScratchD.x - this._robotaxiPathP1.x,
+        this._taxiScratchD.z - this._robotaxiPathP1.z,
+      )
+      : Number.POSITIVE_INFINITY;
+    // Only bleed to a full stop when BOTH the spline progress and physical
+    // chassis position agree we are near the endpoint. Progress can reach
+    // 1.0 while the tyres are wide of the path; in that case keep creeping
+    // toward the actual curbside point instead of parking mid-approach.
+    const distanceStop = 1 - smoothstep(0.85, 2.8, distToEnd);
     const stopForce = stopAtEnd
-      ? smoothstep(0.94, 1.0, this.robotaxiPathProgress)
+      ? smoothstep(0.94, 1.0, this.robotaxiPathProgress) * distanceStop
       : 0;
     let desiredTargetSpeed = baseTarget * (1 - stopForce);
     if (stopAtEnd) {
-      const distToEnd = Math.hypot(
-        this._taxiScratchD.x - this._robotaxiPathP1.x,
-        this._taxiScratchD.z - this._robotaxiPathP1.z,
-      );
       const distanceTarget = THREE.MathUtils.clamp(
         (distToEnd - 0.7) * 0.85,
         0,
