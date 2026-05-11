@@ -445,15 +445,21 @@ export class SurfaceScene implements SceneSlot {
 
     // Marble worlds bake their own lighting and atmospheric haze into the
     // splat colours, but Three.js lights are still needed for the landed GLB
-    // rocket. Spark splat colours are baked, so these low-intensity lights
-    // do not wash the WorldLabs scene.
-    this.scene.add(new THREE.HemisphereLight(0xb9eaff, 0x1a120d, 0.58));
-    const rocketKey = new THREE.DirectionalLight(0xffe3bd, 1.9);
+    // rocket + the Cybertruck body. Spark splat colours are baked, so
+    // these modest-intensity lights do not wash the WorldLabs scene.
+    this.scene.add(new THREE.HemisphereLight(0xb9eaff, 0x1a120d, 0.75));
+    const rocketKey = new THREE.DirectionalLight(0xffe3bd, 2.4);
     rocketKey.position.set(-4, 7, 5);
     this.scene.add(rocketKey);
     const rocketRim = new THREE.DirectionalLight(0x7de9ff, 1.35);
     rocketRim.position.set(5, 3.5, -5);
     this.scene.add(rocketRim);
+    // Warm dust fill — only really makes itself felt against the
+    // Cybertruck body on Mars, where the salmon-toned ground would
+    // otherwise leave the truck reading as a flat silhouette.
+    const dustFill = new THREE.DirectionalLight(0xffd0a8, 0.55);
+    dustFill.position.set(8, 4, -2);
+    this.scene.add(dustFill);
 
     // Ground floor — always present, tinted per-planet in
     // `applyGroundFloorForPlanet`. Sits at y=0 facing up, slightly below
@@ -570,7 +576,10 @@ export class SurfaceScene implements SceneSlot {
       );
       this.buildFallbackSurface(planet);
       this.applyGroundFloorForPlanet(planet, true);
-      this._groundFloor.visible = false;
+      // Keep the persistent radial floor visible *under* the procedural
+      // fallback. It contributes a soft gradient toward the horizon that
+      // the flat fallback disc lacks; the polygon-offset stacking with
+      // the road ribbon means it doesn't z-fight either.
       this._progress = 1;
       this._status = "ready";
       return;
@@ -2702,8 +2711,15 @@ export class SurfaceScene implements SceneSlot {
     // get a moderate opacity by default.
     mat.opacity =
       mockFallback
-        ? 0.94
-        : planet.id === "mars" ? 0.58 : planet.id === "luna" ? 0.48 : 0.68;
+        // Under the fallback we want the radial floor to be a soft tinted
+        // base, not a hero element. The fallback ground disc supplies the
+        // primary near-surface read.
+        ? 0.32
+        : planet.id === "mars"
+          ? 0.72
+          : planet.id === "luna"
+            ? 0.48
+            : 0.68;
     mat.roughness = planet.id === "mars" ? 1 : 0.95;
     mat.metalness = 0;
     mat.depthWrite = false;
@@ -3138,7 +3154,10 @@ export class SurfaceScene implements SceneSlot {
     group.add(ground);
 
     // Scattered boulders — deterministic placement per-planet so repeat
-    // visits look the same.
+    // visits look the same. On Mars we additionally reject any boulder
+    // whose footprint would land inside the robotaxi tour rectangle (so
+    // the Cybertruck never drives through a rock) and within 7 m of the
+    // pickup spawn pose.
     const rng = mulberry32(hashString(planet.id));
     const rockMat = new THREE.MeshStandardMaterial({
       color: midColor.clone().multiplyScalar(0.85),
@@ -3146,20 +3165,36 @@ export class SurfaceScene implements SceneSlot {
       metalness: 0.03,
     });
     const rockGeom = new THREE.IcosahedronGeometry(1, 1);
+    const isMars = planet.id === "mars";
+    // Inflated bounds so we keep a safety margin around the road edge.
+    const tourHalfX = ROBOTAXI_TOUR_HALF_X + 4;
+    const tourHalfZ = ROBOTAXI_TOUR_HALF_Z + 4;
     const rocks = new THREE.InstancedMesh(rockGeom, rockMat, 48);
     const rockMatrix = new THREE.Matrix4();
     const rockPos = new THREE.Vector3();
     const rockQuat = new THREE.Quaternion();
     const rockScale = new THREE.Vector3();
-    for (let i = 0; i < rocks.count; i++) {
-      // Spread rocks in a ring between 14 and 120 units so the spawn area
-      // near the rocket pad stays clear.
+    let placed = 0;
+    let attempts = 0;
+    while (placed < rocks.count && attempts < 800) {
+      attempts += 1;
       const a = rng() * Math.PI * 2;
       const radius = 14 + rng() * 106;
+      const x = Math.cos(a) * radius;
+      const z = Math.sin(a) * radius;
+      if (isMars) {
+        // Reject anything inside the inflated tour rectangle — the
+        // pickup spawn lives at the scene origin so the rectangle is
+        // already centred on (0, 0) for the fallback.
+        if (Math.abs(x) < tourHalfX && Math.abs(z) < tourHalfZ) continue;
+        // Extra safety: keep 7 m clear around the player spawn even if
+        // the tour rectangle is small for some reason.
+        if (Math.hypot(x, z) < 7) continue;
+      }
       rockPos.set(
-        Math.cos(a) * radius,
+        x,
         SURFACE_GROUND_Y - 0.22 + rng() * 0.32,
-        Math.sin(a) * radius,
+        z,
       );
       rockQuat.setFromEuler(
         new THREE.Euler(rng() * 0.6, rng() * Math.PI * 2, rng() * 0.6),
@@ -3167,10 +3202,65 @@ export class SurfaceScene implements SceneSlot {
       const s = 0.4 + rng() * 1.6;
       rockScale.set(s, 0.65 * s, s);
       rockMatrix.compose(rockPos, rockQuat, rockScale);
-      rocks.setMatrixAt(i, rockMatrix);
+      rocks.setMatrixAt(placed, rockMatrix);
+      placed += 1;
     }
+    // If we filtered too aggressively, the trailing instance matrices
+    // are still identity (visible at origin). Shrink the draw count to
+    // the number of valid placements.
+    rocks.count = placed;
     rocks.instanceMatrix.needsUpdate = true;
     group.add(rocks);
+
+    // Sprinkle smaller pebbles around the road shoulders on Mars to add
+    // ground detail without blocking the loop. Same exclusion rule as
+    // the boulders, but with a tighter clearance (3.6 m off the road
+    // centreline) so they sit just at the edge of the ribbon.
+    if (isMars) {
+      const pebbleMat = new THREE.MeshStandardMaterial({
+        color: midColor.clone().multiplyScalar(0.7),
+        roughness: 1,
+        metalness: 0,
+      });
+      const pebbleGeom = new THREE.IcosahedronGeometry(0.3, 0);
+      const pebbles = new THREE.InstancedMesh(pebbleGeom, pebbleMat, 120);
+      let pPlaced = 0;
+      let pAttempts = 0;
+      const scratch = new THREE.Vector3();
+      while (pPlaced < pebbles.count && pAttempts < 2000) {
+        pAttempts += 1;
+        const a = rng() * Math.PI * 2;
+        const radius = 8 + rng() * 60;
+        const x = Math.cos(a) * radius;
+        const z = Math.sin(a) * radius;
+        // Reject pebbles inside the tour rectangle (too close to the road).
+        if (Math.abs(x) < tourHalfX && Math.abs(z) < tourHalfZ) continue;
+        // Also reject within 3.6 m of the road by reading the nearest
+        // tour-loop point. Cheap because we only do it once per pebble.
+        const targetVec = scratch.set(x, 0, z);
+        let bestDist = Infinity;
+        for (let k = 0; k < 36; k++) {
+          this.sampleRobotaxiTourPoint(k / 36, this._taxiScratchA);
+          const dx = this._taxiScratchA.x - targetVec.x;
+          const dz = this._taxiScratchA.z - targetVec.z;
+          const d = Math.hypot(dx, dz);
+          if (d < bestDist) bestDist = d;
+        }
+        if (bestDist < 3.6) continue;
+        rockPos.set(x, SURFACE_GROUND_Y - 0.04 + rng() * 0.06, z);
+        rockQuat.setFromEuler(
+          new THREE.Euler(rng() * 0.4, rng() * Math.PI * 2, rng() * 0.4),
+        );
+        const ps = 0.5 + rng() * 1.1;
+        rockScale.set(ps, 0.55 * ps, ps);
+        rockMatrix.compose(rockPos, rockQuat, rockScale);
+        pebbles.setMatrixAt(pPlaced, rockMatrix);
+        pPlaced += 1;
+      }
+      pebbles.count = pPlaced;
+      pebbles.instanceMatrix.needsUpdate = true;
+      group.add(pebbles);
+    }
 
     // Sky: a large starfield dome tinted by the planet's glow colour so
     // Europa reads icy-blue, Mars reads salmon, Titan reads amber, etc.
