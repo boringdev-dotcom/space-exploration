@@ -377,6 +377,10 @@ export class CockpitRig {
     this.speedFovBias = Math.max(0, Math.min(8, deg));
   }
 
+  setExteriorVisualScale(scale: number): void {
+    this.chaseGroup.scale.setScalar(Math.max(0.001, scale));
+  }
+
   /**
    * Trigger a transient FOV pop (default +6° decaying over 0.4s) on
    * boost engage, à la Microsoft Flight Simulator.
@@ -475,6 +479,18 @@ export class CockpitRig {
     const backVec = horizFwd.negate().multiplyScalar(backDist);
     const worldUp = new THREE.Vector3(0, 1, 0).multiplyScalar(upDist);
     this.externalAnchor.copy(this.shipState.position).add(backVec).add(worldUp);
+  }
+
+  /**
+   * Plant the external camera at a fixed world position. Used by
+   * MissionScene to anchor the camera at a launchpad SPZ's scan origin
+   * (matching the same vantage point the Marble world was captured from)
+   * so the player watches the launch from the ground rather than trailing
+   * the rocket. Persists until the next {@link dropExternalAnchor} or
+   * another call to this method.
+   */
+  setExternalAnchorWorld(pos: THREE.Vector3): void {
+    this.externalAnchor.copy(pos);
   }
 
   /**
