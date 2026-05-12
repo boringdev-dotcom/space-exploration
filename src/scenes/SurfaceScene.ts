@@ -356,6 +356,12 @@ export class SurfaceScene implements SceneSlot {
 
   private robotaxiModelBaseY = 0;
   private robotaxiCameraHandoff = 0;
+  /** performance.now() at the previous robotaxi tick (ms). Lets the
+   *  robotaxi tick measure wall-clock dt directly, bypassing the global
+   *  100 ms safety clamp on `SceneManager`'s main delta. Necessary so
+   *  that on slow-software-WebGL hosts the truck can still drive at
+   *  roughly real-time pace via aggressive sub-stepping. -1 = uninit. */
+  private robotaxiWallTimeMs = -1;
   /** Steer-axis groups wrapping each wheel mesh so we can rotate around Y
    *  (steering) and X (roll) without disturbing the rest of the GLB. */
   private robotaxiWheels: Array<{ group: THREE.Group; isFront: boolean }> = [];
@@ -555,7 +561,12 @@ export class SurfaceScene implements SceneSlot {
     this.robotaxiRoot.position.y = ROBOTAXI_GROUND_Y;
     this.clearRobotaxiTracks();
     this.entryRevealElapsed = 0;
+    // Always start with the disc hidden. If we fall through to the
+    // procedural fallback path we re-enable it; if the real Marble splat
+    // loads it stays hidden so we don't overlay a flat brown circle on
+    // top of the photoreal splat ground.
     this.applyGroundFloorForPlanet(planet);
+    this._groundFloor.visible = false;
     void this.loadRocketForSurface(++this.rocketLoadId);
 
     if (this.splat) {
@@ -588,6 +599,7 @@ export class SurfaceScene implements SceneSlot {
       // fallback. It contributes a soft gradient toward the horizon that
       // the flat fallback disc lacks; the polygon-offset stacking with
       // the road ribbon means it doesn't z-fight either.
+      this._groundFloor.visible = true;
       this._progress = 1;
       this._status = "ready";
       return;
@@ -993,14 +1005,37 @@ export class SurfaceScene implements SceneSlot {
    * rather than the truck snapping to face the next sample.
    */
   private updateRobotaxi(dt: number, elapsed: number): void {
-    if (this.robotaxiState === "idle") return;
+    if (this.robotaxiState === "idle") {
+      // Reset wall-time tracker so a re-summon doesn't carry over a huge
+      // accumulated gap from when the truck was idle.
+      this.robotaxiWallTimeMs = -1;
+      return;
+    }
     if (!this.robotaxiModel) {
-      // Model still loading — hold the truck offscreen invisibly until
-      // it resolves; nothing else to update.
+      this.robotaxiWallTimeMs = -1;
       return;
     }
     if (dt <= 0) return;
     this.robotaxiRoot.visible = true;
+
+    // Measure true wall-clock dt for the robotaxi specifically. The
+    // SceneManager hard-clamps the main delta at 0.1 s so a slow-renderer
+    // host (1 fps in software WebGL with 1.5 M splats) would only get
+    // 100 ms of physics simulated per wall-clock frame, making the truck
+    // crawl. We use performance.now() here so the robotaxi can catch up.
+    const nowMs = (typeof performance !== "undefined" && performance.now
+      ? performance.now()
+      : Date.now());
+    let wallDt = this.robotaxiWallTimeMs < 0
+      ? dt
+      : Math.min(5.0, (nowMs - this.robotaxiWallTimeMs) / 1000);
+    this.robotaxiWallTimeMs = nowMs;
+    // Floor at the SceneManager's reported dt so we never simulate less
+    // than the renderer thinks happened. Cap at 5 s so a tab-resume after
+    // a long pause can't dump a multi-minute physics chunk at once.
+    if (!Number.isFinite(wallDt) || wallDt < dt) wallDt = dt;
+    wallDt = Math.min(5.0, wallDt);
+    dt = wallDt;
 
     // Fade-in (on spawn) / fade-out (on depart) ramp the truck materials
     // smoothly so it doesn't pop in or out of the world.
@@ -1023,17 +1058,61 @@ export class SurfaceScene implements SceneSlot {
       return;
     }
 
-    // Watchdog: track time-in-current-phase. If a drive phase has been
-    // running for too long, force the next transition so a rare physics
-    // edge case (e.g. the truck wedged itself off-spline) can't lock the
-    // player out of the loop.
-    if (this.robotaxiPhase !== this.robotaxiLastPhase) {
-      this.robotaxiPhaseElapsed = 0;
-      this.robotaxiLastPhase = this.robotaxiPhase;
-    } else {
-      this.robotaxiPhaseElapsed += dt;
+    // Sub-step the control loop. On a fast host this runs once per
+    // frame (dt ≈ 16 ms); on a software-WebGL host stalling at < 1 fps
+    // (e.g. a 1.5 M-splat Marble scan) we run up to 200 iterations of
+    // 1/30 s so damping, lateral-damping impulses, and docking pulls
+    // stay well-conditioned regardless of how badly the renderer drops
+    // frames. Without this, a 5 s frame would feed dt = 5 to applyImpulse
+    // and effectively teleport the chassis on the next physics step.
+    const maxControlStep = 1 / 30;
+    const desiredSteps = Math.max(1, Math.ceil(dt / maxControlStep));
+    const stepCount = Math.min(200, desiredSteps);
+    const stepDt = dt / stepCount;
+
+    for (let stepIdx = 0; stepIdx < stepCount; stepIdx++) {
+      // Watchdog: track time-in-current-phase across the *entire* dt the
+      // frame covers (i.e. accumulate stepDt each sub-step). If a drive
+      // phase has been running for too long, force the next transition
+      // so a rare physics edge case (e.g. the truck wedged itself off-
+      // spline) can't lock the player out of the loop.
+      if (this.robotaxiPhase !== this.robotaxiLastPhase) {
+        this.robotaxiPhaseElapsed = 0;
+        this.robotaxiLastPhase = this.robotaxiPhase;
+      } else {
+        this.robotaxiPhaseElapsed += stepDt;
+      }
+
+      // Bail out early if a phase transitioned to idle inside this loop.
+      // (`runRobotaxiPhaseStep` can set state back to "idle" when the
+      // departure animation completes; TS doesn't narrow through that
+      // mutation, hence the cast.)
+      if ((this.robotaxiState as RobotaxiState) === "idle") break;
+
+      this.runRobotaxiPhaseStep(stepDt, elapsed);
     }
 
+    // Camera updates use raw dt because their dampVec3 / dampAngle calls
+    // are exponential-decay (dt-invariant). Running them sub-stepped
+    // would be redundant work and over-damp on long frames.
+    this.runRobotaxiCameraStep(dt, elapsed);
+
+    this._robotaxiPrevPos.copy(this.robotaxiRoot.position);
+  }
+
+  /**
+   * One control-loop iteration. Pulled out of `updateRobotaxi` so it can
+   * be sub-stepped on slow hosts. All the per-phase tickers + state
+   * transitions live here.
+   *
+   * Precondition: `this.physics` is non-null. `updateRobotaxi` early-
+   * returns when physics is still loading, so by the time we get here
+   * the world + chassis exist. We capture into a local so TS narrows
+   * through the per-case mutations below.
+   */
+  private runRobotaxiPhaseStep(dt: number, elapsed: number): void {
+    const physics = this.physics;
+    if (!physics) return;
     switch (this.robotaxiPhase) {
       case "arriving": {
         this.tickPhysicsAlongHermite(dt, elapsed, /*stopAtEnd=*/ true);
@@ -1052,7 +1131,7 @@ export class SurfaceScene implements SceneSlot {
           // Stopped at the curb — settle the chassis to the exact arrival
           // pose so the boarding handoff has a clean reference, then begin
           // the boarding pause.
-          this.physics.teleport(
+          physics.teleport(
             this._taxiScratchA.set(
               this._robotaxiArrivalPos.x,
               ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y,
@@ -1100,7 +1179,7 @@ export class SurfaceScene implements SceneSlot {
         const reachedDropoff =
           (distToReturn < 1.8 && this.robotaxiSpeed < 1.6) || watchdog;
         if (reachedDropoff) {
-          this.physics.teleport(
+          physics.teleport(
             this._taxiScratchA.set(
               this._robotaxiArrivalPos.x,
               ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y,
@@ -1169,12 +1248,21 @@ export class SurfaceScene implements SceneSlot {
       default:
         break;
     }
+  }
 
-    // Camera ownership rules:
-    //  * cruising / returning  → chase camera follows the truck
-    //  * boarding              → chase camera (we're easing INTO the cab)
-    //  * dropoff               → handoff camera (easing back to walk pose)
-    //  * departing             → walking camera (player is back on foot)
+  /**
+   * Camera ownership rules (called once per frame with the raw dt):
+   *   - cruising / returning / boarding → chase camera follows the truck
+   *   - dropoff or active camera handoff → handoff camera back to walk
+   *   - departing → walking camera (player is back on foot)
+   *
+   * Both `updateRobotaxiRideCamera` and `updateRobotaxiCameraHandoff`
+   * route every per-frame transform through `dampVec3`/`dampAngle`,
+   * which are exponential-decay (frame-rate invariant), so we don't
+   * need to sub-step the camera even when the truck's control loop is
+   * sub-stepping.
+   */
+  private runRobotaxiCameraStep(dt: number, elapsed: number): void {
     if (
       this.robotaxiPhase === "cruising"
       || this.robotaxiPhase === "returning"
@@ -1184,8 +1272,6 @@ export class SurfaceScene implements SceneSlot {
     } else if (this.robotaxiPhase === "dropoff" || this.robotaxiCameraHandoff > 0) {
       this.updateRobotaxiCameraHandoff(dt);
     }
-
-    this._robotaxiPrevPos.copy(this.robotaxiRoot.position);
   }
 
   /* -------- Physics-driven tickers -------- */

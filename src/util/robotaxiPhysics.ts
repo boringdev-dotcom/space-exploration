@@ -251,13 +251,29 @@ export async function createRobotaxiPhysics(
     },
 
     step(dt: number) {
-      // Rapier prefers a fixed timestep, but with the rest of the engine
-      // running off a delta we pass dt through. Clamp to avoid huge
-      // jumps on tab-resume frames (which would blow up the simulation).
-      const stepDt = Math.min(1 / 30, Math.max(1 / 240, dt));
-      vehicle.updateVehicle(stepDt);
-      world.timestep = stepDt;
-      world.step();
+      // Rapier prefers a fixed timestep. If the renderer is slow (e.g. a
+      // big Marble splat in software WebGL) the frame dt can balloon to
+      // hundreds of ms; clamping a single step to 1/30 would freeze the
+      // simulation relative to wall clock. Instead we sub-step: each
+      // sub-step is bounded for stability but we run enough of them to
+      // keep up. Capped at 6 sub-steps per frame so a catastrophic stall
+      // can't lock the main thread up trying to "catch up".
+      // Sub-step Rapier to keep physics in sync with wall clock even on
+      // very slow hosts. On a real-GPU browser at 60 fps this is a single
+      // 16 ms step. On a software-WebGL host at <1 fps (e.g. a 1.5 M-splat
+      // Marble scan with no GPU) we still want the truck to actually
+      // drive. Cap is 200 × 1/30 ≈ 6.7 s of physics per JS frame, which
+      // matches the surface scene's 5 s wall-clock cap (so we always have
+      // headroom to fully consume the incoming dt regardless of frame
+      // length).
+      const subStepMax = 1 / 60;
+      const subStepCount = Math.min(200, Math.max(1, Math.ceil(dt / subStepMax)));
+      const subStepDt = Math.min(1 / 30, Math.max(1 / 240, dt / subStepCount));
+      world.timestep = subStepDt;
+      for (let i = 0; i < subStepCount; i++) {
+        vehicle.updateVehicle(subStepDt);
+        world.step();
+      }
     },
 
     teleport(position: THREE.Vector3, heading: number) {
