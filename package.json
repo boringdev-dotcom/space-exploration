@@ -17,7 +17,6 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.node.json"
   },
   "dependencies": {
-    "@dimforge/rapier3d-compat": "^0.19.3",
     "@sparkjsdev/spark": "^2.0.0",
     "three": "~0.180.0"
   },

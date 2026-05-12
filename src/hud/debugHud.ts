@@ -116,12 +116,6 @@ export function mountDebugHud({ manager }: DebugHudArgs): () => void {
       lines.push(`status:       ${surface.status}`);
       lines.push(`progress:     ${(surface.progress * 100).toFixed(1)}%`);
       lines.push(`pointerLock:  ${surface.isLocked}`);
-      lines.push(`taxi.state:   ${surface.robotaxiState} / ${surface.robotaxiPhase}`);
-      lines.push(`taxi.pos:     ${surface.robotaxiPosition ? fmtV(surface.robotaxiPosition) : "—"}`);
-      lines.push(
-        `taxi.heading: ${fmt(THREE.MathUtils.radToDeg(surface.robotaxiHeading), 1)}°  path ${(surface.robotaxiPathProgress * 100).toFixed(1)}%`,
-      );
-      lines.push(`taxi.ground:  contact ${fmt(surface.robotaxiContactY, 2)}  chassis ${fmt(surface.robotaxiChassisRestY, 2)}`);
       lines.push(`splatUrl:     ${surface.splatUrl ?? "(none)"}`);
       lines.push(`splatCount:   ${surface.splatCount ?? "—"}`);
       lines.push(`splat.pos:    ${surface.splatPosition ? fmtV(surface.splatPosition) : "—"}`);
@@ -238,13 +232,6 @@ export interface SurfaceDebugSnapshot {
   status: string;
   progress: number;
   isLocked: boolean;
-  robotaxiState: string;
-  robotaxiPhase: string;
-  robotaxiPosition: THREE.Vector3 | null;
-  robotaxiHeading: number;
-  robotaxiPathProgress: number;
-  robotaxiContactY: number;
-  robotaxiChassisRestY: number;
   splatUrl: string | null;
   splatCount: number | null;
   splatPosition: THREE.Vector3 | null;

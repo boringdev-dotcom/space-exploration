@@ -567,7 +567,6 @@ export class SceneManager {
         getProgress: () => this.surface.progress,
         getEntryRevealProgress: () => this.surface.getEntryRevealProgress(),
         getRocketInteraction: () => this.surface.getRocketInteraction(),
-        getRobotaxiSnapshot: () => this.surface.getRobotaxiSnapshot(),
         onLockRequest: () => this.surface.requestPointerLock(),
         onPointerLockState: (cb) => this.surface.onLockChange(cb),
         onReturn: () => this.setState("select"),
@@ -578,8 +577,6 @@ export class SceneManager {
           this.surface.cancelBoarding();
           this.setState("mission");
         },
-        onRequestRobotaxi: () => this.surface.requestRobotaxi({ requestLookLock: true }),
-        onEndRobotaxi: () => this.surface.endRobotaxi(),
       }),
     );
   }

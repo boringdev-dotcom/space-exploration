@@ -12,13 +12,6 @@ export const EARTH_GLB_URL = "/models/earth/earth.glb";
 export const COCKPIT_GLB_URL = "/models/cockpits/spacecraft_cockpit.glb";
 
 /**
- * Tesla Cybertruck used as the Mars Robotaxi. The surface scene loads it
- * lazily — only when the player actually summons a robotaxi — to keep the
- * Moon / Europa / Titan landings free of an unused 6 MB asset fetch.
- */
-export const CYBERTRUCK_GLB_URL = "/models/cybertruck/tesla_cybertruck.glb";
-
-/**
  * URL prefix for the Spark public mock splats seeded by `npm run worlds:mock`.
  * These are stock demo splats (e.g. a butterfly) that we never want to show
  * in place of a real world — if a `splatUrl` still points here, the scene
