@@ -578,7 +578,7 @@ export class SceneManager {
           this.surface.cancelBoarding();
           this.setState("mission");
         },
-        onRequestRobotaxi: () => this.surface.requestRobotaxi(),
+        onRequestRobotaxi: () => this.surface.requestRobotaxi({ requestLookLock: true }),
         onEndRobotaxi: () => this.surface.endRobotaxi(),
       }),
     );

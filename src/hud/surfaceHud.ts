@@ -57,12 +57,16 @@ export function mountSurfaceHud(args: Args): () => void {
   let selectedPlanet: Planet | null = null;
   const destinationCards = new Map<string, HTMLButtonElement>();
 
+  const robotaxiOwnsCamera = (): boolean => {
+    const state = args.getRobotaxiSnapshot?.().state ?? "idle";
+    return state === "touring" || state === "ending";
+  };
+
   args.onPointerLockState((locked) => {
     pointerLocked = locked;
     const revealDone = (args.getEntryRevealProgress?.() ?? 1) >= 0.98;
-    const robotaxiActive = (args.getRobotaxiSnapshot?.().state ?? "idle") !== "idle";
     if (lockPrompt) {
-      lockPrompt.classList.toggle("is-hidden", locked || plannerOpen || !revealDone || robotaxiActive);
+      lockPrompt.classList.toggle("is-hidden", locked || plannerOpen || !revealDone || robotaxiOwnsCamera());
     }
   });
 
@@ -117,8 +121,7 @@ export function mountSurfaceHud(args: Args): () => void {
 
     screen?.classList.toggle("is-entering", revealProgress < 1);
     if (lockPrompt) {
-      const robotaxiActive = (args.getRobotaxiSnapshot?.().state ?? "idle") !== "idle";
-      lockPrompt.classList.toggle("is-hidden", pointerLocked || plannerOpen || !revealDone || robotaxiActive);
+      lockPrompt.classList.toggle("is-hidden", pointerLocked || plannerOpen || !revealDone || robotaxiOwnsCamera());
     }
 
     if (rocketDistance) rocketDistance.textContent = distanceText;

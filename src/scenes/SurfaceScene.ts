@@ -104,8 +104,8 @@ const SURFACE_GROUND_Y = 0;
 const SURFACE_FLOOR_Y = SURFACE_GROUND_Y - 0.012;
 /** Decals/tracks ride just above the contact plane. */
 const SURFACE_DECAL_Y = SURFACE_GROUND_Y + 0.018;
-const ROBOTAXI_GROUND_Y = SURFACE_GROUND_Y;
-const ROBOTAXI_MODEL_YAW_OFFSET = Math.PI;
+const ROBOTAXI_CONTACT_Y = SURFACE_GROUND_Y;
+const ROBOTAXI_MODEL_YAW_OFFSET = 0;
 /**
  * Where the truck stops to pick the player up: a curbside spot a few
  * meters in front of the player and a step to one side, with its nose
@@ -117,18 +117,20 @@ const ROBOTAXI_PICKUP_SIDE = 2.6;
 /** Top cruise speed on a long straight (m/s) ~ 37 km/h, relaxed tour pace. */
 const ROBOTAXI_MAX_SPEED = 10.5;
 /** Target speed in the middle of a tight corner (m/s). */
-const ROBOTAXI_CORNER_SPEED = 5.5;
+const ROBOTAXI_CORNER_SPEED = 4.4;
 /** Final crawl speed when easing into the pickup or dropoff (m/s). */
 const ROBOTAXI_APPROACH_SPEED = 1.9;
 /** Tour duration before the truck auto-returns to the pickup (sec). */
 const ROBOTAXI_TOUR_DURATION_SEC = 46;
 /**
- * Racetrack-shaped tour: a rounded rectangle centred on the pickup spot.
- * Long straights give the truck somewhere to actually accelerate.
+ * Racetrack-shaped tour: a stadium loop centred on the pickup spot. Long
+ * straights give the truck room to accelerate; broad semicircular end caps
+ * make edge turns read like a vehicle steering through a curve instead of
+ * a spline snapping through a U-turn.
  */
-const ROBOTAXI_TOUR_HALF_X = 26;
-const ROBOTAXI_TOUR_HALF_Z = 17;
-const ROBOTAXI_TOUR_CORNER_RADIUS = 11;
+const ROBOTAXI_TOUR_HALF_X = 14;
+const ROBOTAXI_TOUR_HALF_Z = 8.2;
+const ROBOTAXI_TOUR_CORNER_RADIUS = ROBOTAXI_TOUR_HALF_Z;
 const ROBOTAXI_TOUR_PATH_LENGTH =
   // Perimeter of a rounded rectangle = 2*(2a + 2b - 4r) + 2*pi*r
   // where a,b are half-widths along the principal axes and r is corner radius.
@@ -149,6 +151,7 @@ const ROBOTAXI_RIDE_MIN_CAMERA_Y = 2.8;
  * ground at rest, with suspension travel showing through naturally
  * during cornering. */
 const ROBOTAXI_CHASSIS_TO_ROOT_Y = 1.38;
+const ROBOTAXI_CHASSIS_REST_Y = ROBOTAXI_CONTACT_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y;
 /** Pure-pursuit lookahead distance (m). Bigger = lazier turn-in. */
 const ROBOTAXI_PURSUIT_LOOKAHEAD = 9.0;
 /** Steering proportional gain mapping heading error → wheel angle.
@@ -498,7 +501,7 @@ export class SurfaceScene implements SceneSlot {
     // pay the network cost.
     this.robotaxiRoot.name = "surface.robotaxi";
     this.robotaxiRoot.visible = false;
-    this.robotaxiRoot.position.y = ROBOTAXI_GROUND_Y;
+    this.robotaxiRoot.position.y = ROBOTAXI_CONTACT_Y;
     this.scene.add(this.robotaxiRoot);
 
     this.controls = new PointerLockControls(this.camera, canvas);
@@ -558,7 +561,7 @@ export class SurfaceScene implements SceneSlot {
     this.rideLookYawOffset = 0;
     this.rideLookPitchOffset = 0;
     this.robotaxiRoot.visible = false;
-    this.robotaxiRoot.position.y = ROBOTAXI_GROUND_Y;
+    this.robotaxiRoot.position.y = ROBOTAXI_CONTACT_Y;
     this.clearRobotaxiTracks();
     this.entryRevealElapsed = 0;
     // Always start with the disc hidden. If we fall through to the
@@ -828,7 +831,7 @@ export class SurfaceScene implements SceneSlot {
    * the player, parallel to where they were looking, so when the camera
    * hands off into the cab the rider is already facing forward.
    */
-  requestRobotaxi(): boolean {
+  requestRobotaxi(options: { requestLookLock?: boolean } = {}): boolean {
     if (this.robotaxiState !== "idle") return false;
     if (!ROBOTAXI_PLANETS.has(this.currentPlanetId ?? "")) return false;
     if (this._status !== "ready") return false;
@@ -841,7 +844,7 @@ export class SurfaceScene implements SceneSlot {
 
     // Pickup spot = where the camera is right now (player position).
     this._robotaxiPickupPos.copy(this.camera.position);
-    this._robotaxiPickupPos.y = ROBOTAXI_GROUND_Y;
+    this._robotaxiPickupPos.y = ROBOTAXI_CONTACT_Y;
 
     // Capture the player's horizontal facing direction. `getWorldDirection`
     // returns the camera's -Z axis in world space, which is exactly the
@@ -868,7 +871,7 @@ export class SurfaceScene implements SceneSlot {
       this._robotaxiPickupPos.x
         + this._robotaxiPlayerForward.x * ROBOTAXI_PICKUP_FORWARD
         + this._robotaxiPlayerRight.x * ROBOTAXI_PICKUP_SIDE,
-      ROBOTAXI_GROUND_Y,
+      ROBOTAXI_CONTACT_Y,
       this._robotaxiPickupPos.z
         + this._robotaxiPlayerForward.z * ROBOTAXI_PICKUP_FORWARD
         + this._robotaxiPlayerRight.z * ROBOTAXI_PICKUP_SIDE,
@@ -879,29 +882,15 @@ export class SurfaceScene implements SceneSlot {
       -this._robotaxiPlayerForward.z,
     );
 
-    // Spawn ~20 m out, biased mostly forward + a small lateral offset so
-    // the arrival Hermite curve has room to bend gracefully into the
-    // curbside pose without crabbing in sideways. The lateral magnitude
-    // is scaled to ~30% of the spawn distance — at 20 m that puts the
-    // truck about 6 m off the player's line-of-sight, ~17° off-axis,
-    // which reads as a natural slight-arc approach.
-    const tilt = (Math.random() - 0.5) * 0.5;
-    const cosT = Math.cos(tilt);
-    const sinT = Math.sin(tilt);
-    const spawnDirX =
-      this._robotaxiPlayerForward.x * cosT - this._robotaxiPlayerForward.z * sinT;
-    const spawnDirZ =
-      this._robotaxiPlayerForward.x * sinT + this._robotaxiPlayerForward.z * cosT;
-    const sideBias = Math.random() < 0.5 ? 1 : -1;
-    const lateralOffset = ROBOTAXI_SPAWN_DISTANCE * 0.3;
+    // Spawn behind the curbside stop in the same lane. This makes the
+    // truck drive forward along the captured player heading instead of
+    // appearing from a random side and crabbing into the pickup.
     this._robotaxiSpawnPos.set(
-      this._robotaxiPickupPos.x
-        + spawnDirX * ROBOTAXI_SPAWN_DISTANCE
-        + this._robotaxiPlayerRight.x * sideBias * lateralOffset,
-      ROBOTAXI_GROUND_Y,
-      this._robotaxiPickupPos.z
-        + spawnDirZ * ROBOTAXI_SPAWN_DISTANCE
-        + this._robotaxiPlayerRight.z * sideBias * lateralOffset,
+      this._robotaxiArrivalPos.x
+        - this._robotaxiPlayerForward.x * ROBOTAXI_SPAWN_DISTANCE,
+      ROBOTAXI_CONTACT_Y,
+      this._robotaxiArrivalPos.z
+        - this._robotaxiPlayerForward.z * ROBOTAXI_SPAWN_DISTANCE,
     );
 
     this.robotaxiRoot.position.copy(this._robotaxiSpawnPos);
@@ -932,23 +921,21 @@ export class SurfaceScene implements SceneSlot {
     this.rideLookYawOffset = 0;
     this.rideLookPitchOffset = 0;
     this.buildRobotaxiTracks(this._robotaxiPickupPos);
-    // Kick off Rapier load if this is the first summon, then teleport the
-    // chassis to the spawn pose. If physics isn't ready yet, the per-frame
-    // tick will hold the truck offscreen until it is.
-    this.ensureRobotaxiPhysics();
-
-    // Initial heading: aim from the spawn point toward the arrival pose so
-    // the first few frames of motion have zero steering error and the truck
-    // doesn't snap sideways before settling onto the Hermite curve.
-    const aimDx = this._robotaxiArrivalPos.x - this._robotaxiSpawnPos.x;
-    const aimDz = this._robotaxiArrivalPos.z - this._robotaxiSpawnPos.z;
-    this.robotaxiHeading = Math.atan2(aimDx, -aimDz);
+    // Initial heading matches the final curb heading because the spawn is
+    // placed directly behind the stop on the same lane.
+    this.robotaxiHeading = this.robotaxiArrivalHeading;
     this.rideCameraYaw = this.robotaxiHeading;
     this.robotaxiRoot.rotation.set(0, this.robotaxiHeading, 0);
 
     // Seed the arrival Hermite segment so the first updateRobotaxi tick
     // has a valid path to sample.
     this.beginArrivalPath();
+    // Kick off Rapier load after heading/path setup so the physics chassis
+    // and visible root share the same initial pose.
+    this.ensureRobotaxiPhysics();
+    if (options.requestLookLock) {
+      this.requestPointerLock();
+    }
     return true;
   }
 
@@ -1134,7 +1121,7 @@ export class SurfaceScene implements SceneSlot {
           physics.teleport(
             this._taxiScratchA.set(
               this._robotaxiArrivalPos.x,
-              ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y,
+              ROBOTAXI_CHASSIS_REST_Y,
               this._robotaxiArrivalPos.z,
             ),
             this.robotaxiArrivalHeading,
@@ -1182,7 +1169,7 @@ export class SurfaceScene implements SceneSlot {
           physics.teleport(
             this._taxiScratchA.set(
               this._robotaxiArrivalPos.x,
-              ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y,
+              ROBOTAXI_CHASSIS_REST_Y,
               this._robotaxiArrivalPos.z,
             ),
             this.robotaxiArrivalHeading,
@@ -1681,7 +1668,7 @@ export class SurfaceScene implements SceneSlot {
     const dist = Math.max(1e-3, Math.hypot(dx, dz));
     const dirX = dx / dist;
     const dirZ = dz / dist;
-    const targetY = ROBOTAXI_GROUND_Y + ROBOTAXI_CHASSIS_TO_ROOT_Y;
+    const targetY = ROBOTAXI_CHASSIS_REST_Y;
     const yError = targetY - this._taxiScratchD.y;
     const r = physics.chassis.rotation();
     const chassisUpY = 1 - 2 * (r.x * r.x + r.z * r.z);
@@ -1730,7 +1717,7 @@ export class SurfaceScene implements SceneSlot {
    * tick keeps the truck invisible at spawn instead of crashing.
    */
   private ensureRobotaxiPhysics(): void {
-    const groundY = ROBOTAXI_GROUND_Y;
+    const groundY = ROBOTAXI_CONTACT_Y;
     const heading = this.robotaxiHeading;
     const spawnX = this._robotaxiSpawnPos.x;
     const spawnZ = this._robotaxiSpawnPos.z;
@@ -1738,7 +1725,7 @@ export class SurfaceScene implements SceneSlot {
       p.teleport(
         new THREE.Vector3(
           spawnX,
-          groundY + ROBOTAXI_CHASSIS_TO_ROOT_Y,
+          ROBOTAXI_CHASSIS_REST_Y,
           spawnZ,
         ),
         heading,
@@ -1865,10 +1852,9 @@ export class SurfaceScene implements SceneSlot {
       dt,
     );
 
-    // Apply yaw offset + roll + pitch. YXZ Euler order means yaw applies
-    // first, then pitch (around the now-rotated X axis), then roll. With
-    // yaw at π and the other two near zero this is equivalent to a clean
-    // small-angle rotation in the truck's body frame.
+    // Apply roll + pitch in the truck's body frame. The Cybertruck asset
+    // and physics chassis both use local -Z as the nose, matching the
+    // scene convention where heading 0 drives toward world -Z.
     model.rotation.order = "YXZ";
     model.rotation.set(
       this.robotaxiVisualPitch,
@@ -2026,7 +2012,7 @@ export class SurfaceScene implements SceneSlot {
     const h11 = ttt - tt;
     out.set(
       h00 * p0.x + h10 * t0.x + h01 * p1.x + h11 * t1.x,
-      ROBOTAXI_GROUND_Y,
+      ROBOTAXI_CONTACT_Y,
       h00 * p0.z + h10 * t0.z + h01 * p1.z + h11 * t1.z,
     );
     if (tangentOut) {
@@ -2167,9 +2153,10 @@ export class SurfaceScene implements SceneSlot {
   }
 
   /**
-   * Rounded-rectangle (racetrack) tour path. Phase 0 starts at the
-   * +X-axis edge of the front straight and walks clockwise around the
-   * loop. The loop is composed of four straights and four quarter-arcs.
+   * Stadium-shaped tour path. Phase 0 starts at the +X-axis edge of the
+   * front straight and walks clockwise around the loop. With
+   * `ROBOTAXI_TOUR_CORNER_RADIUS === ROBOTAXI_TOUR_HALF_Z`, the four
+   * quarter arcs collapse into two broad semicircular end caps.
    */
   private sampleRobotaxiTourPoint(
     phase: number,
@@ -2236,7 +2223,7 @@ export class SurfaceScene implements SceneSlot {
       z = (b - r) + r * Math.sin(ang);
     }
 
-    return out.set(cx + x, ROBOTAXI_GROUND_Y, cz + z);
+    return out.set(cx + x, ROBOTAXI_CONTACT_Y, cz + z);
   }
 
   /**
@@ -2310,14 +2297,15 @@ export class SurfaceScene implements SceneSlot {
     const end = this._robotaxiArrivalPos;
     const dist = Math.max(1, Math.hypot(end.x - start.x, end.z - start.z));
     const mag = Math.max(10, dist * 0.6);
-    // Start tangent: rough direction from spawn toward arrival, so the
-    // first frames already point the truck the right way and the Hermite
-    // shape is a graceful S rather than a hard loop.
-    const dirX = end.x - start.x;
-    const dirZ = end.z - start.z;
-    const dirLen = Math.max(0.01, Math.hypot(dirX, dirZ));
+    // Start and end tangents both use the captured forward direction:
+    // the truck is already in-lane, so the arrival reads as driving
+    // forward rather than steering in from an arbitrary side.
     this._robotaxiPathP0.copy(start);
-    this._robotaxiPathT0.set((dirX / dirLen) * mag, 0, (dirZ / dirLen) * mag);
+    this._robotaxiPathT0.set(
+      this._robotaxiPlayerForward.x * mag,
+      0,
+      this._robotaxiPlayerForward.z * mag,
+    );
     // End tangent: aligned with the player's forward, so the truck ends
     // up moving parallel to the curb at the arrival pose.
     this._robotaxiPathP1.copy(end);
@@ -2333,7 +2321,7 @@ export class SurfaceScene implements SceneSlot {
   /** Build the (truck's current pose) → arrival Hermite return segment. */
   private beginReturnPath(): void {
     const start = this._taxiScratchA.copy(this.robotaxiRoot.position);
-    start.y = ROBOTAXI_GROUND_Y;
+    start.y = ROBOTAXI_CONTACT_Y;
     const end = this._robotaxiArrivalPos;
     const dist = Math.max(1, Math.hypot(end.x - start.x, end.z - start.z));
     const mag = Math.max(12, dist * 0.55);
@@ -2354,12 +2342,12 @@ export class SurfaceScene implements SceneSlot {
   /** Build the post-dropoff departure: drive forward and exit the scene. */
   private beginDeparturePath(): void {
     const start = this._taxiScratchA.copy(this.robotaxiRoot.position);
-    start.y = ROBOTAXI_GROUND_Y;
+    start.y = ROBOTAXI_CONTACT_Y;
     const fwdX = Math.sin(this.robotaxiHeading);
     const fwdZ = -Math.cos(this.robotaxiHeading);
     this._robotaxiDepartEndPos.set(
       start.x + fwdX * ROBOTAXI_DEPART_DISTANCE,
-      ROBOTAXI_GROUND_Y,
+      ROBOTAXI_CONTACT_Y,
       start.z + fwdZ * ROBOTAXI_DEPART_DISTANCE,
     );
     const mag = ROBOTAXI_DEPART_DISTANCE * 0.4;
@@ -2438,7 +2426,7 @@ export class SurfaceScene implements SceneSlot {
   /**
    * Walk the model looking for wheel meshes. Each unique wheel gets
    * wrapped in a `steerGroup` whose local axes are aligned with the
-   * truck body (Y up, X to the side, Z forward in model frame). The
+   * truck body (Y up, X to the side, -Z forward in model frame). The
    * wheel mesh keeps its native rotation but moves to (0,0,0) inside
    * its new parent so the parent's Y rotation steers it and X rotation
    * rolls it cleanly.
@@ -2518,9 +2506,9 @@ export class SurfaceScene implements SceneSlot {
       model.add(steerGroup);
 
       // Front classification: in model-local frame the truck nose is at
-      // +Z (because the model is then rotated π around Y to render). Use
+      // -Z, matching the physics chassis and scene heading convention. Use
       // the model bbox centre to decide front vs rear.
-      const isFront = cand.modelLocal.z > modelCenter.z + 0.1;
+      const isFront = cand.modelLocal.z < modelCenter.z - 0.1;
       this.robotaxiWheels.push({ group: steerGroup, isFront });
     }
   }
@@ -2547,10 +2535,9 @@ export class SurfaceScene implements SceneSlot {
       mat,
     );
     mesh.name = "robotaxi.brakeLight";
-    // Rear of cab in model-local space (the model is yawed by π later,
-    // so its native -Z = real-world rear-facing surface after install).
-    mesh.position.set(0, size.y * 0.42, -size.z * 0.45);
-    mesh.rotation.y = Math.PI;
+    // Rear of cab in model-local space; native -Z is the nose, so +Z is
+    // the rear-facing surface.
+    mesh.position.set(0, size.y * 0.42, size.z * 0.45);
     model.add(mesh);
     return mesh;
   }
@@ -2616,8 +2603,8 @@ export class SurfaceScene implements SceneSlot {
       glassMat,
     );
     windshield.name = "fallbackCybertruck.windshield";
-    windshield.position.set(0, 0.97, 1.1);
-    windshield.rotation.x = -0.72;
+    windshield.position.set(0, 0.97, -1.1);
+    windshield.rotation.x = 0.72;
     group.add(windshield);
 
     const rearGlass = new THREE.Mesh(
@@ -2625,18 +2612,18 @@ export class SurfaceScene implements SceneSlot {
       glassMat,
     );
     rearGlass.name = "fallbackCybertruck.rearGlass";
-    rearGlass.position.set(0, 0.94, -0.92);
-    rearGlass.rotation.x = 0.58;
+    rearGlass.position.set(0, 0.94, 0.92);
+    rearGlass.rotation.x = -0.58;
     group.add(rearGlass);
 
     const bumperGeom = new THREE.BoxGeometry(2.04, 0.16, 0.16);
     const frontBar = new THREE.Mesh(bumperGeom, headlightMat);
     frontBar.name = "fallbackCybertruck.frontLightBar";
-    frontBar.position.set(0, 0.72, 2.36);
+    frontBar.position.set(0, 0.72, -2.36);
     group.add(frontBar);
     const rearBar = new THREE.Mesh(bumperGeom, tailMat);
     rearBar.name = "fallbackCybertruck.rearLightBar";
-    rearBar.position.set(0, 0.66, -2.34);
+    rearBar.position.set(0, 0.66, 2.34);
     group.add(rearBar);
 
     const wheelGeom = new THREE.CylinderGeometry(0.42, 0.42, 0.34, 32);
@@ -2644,10 +2631,10 @@ export class SurfaceScene implements SceneSlot {
     const rimGeom = new THREE.CylinderGeometry(0.22, 0.22, 0.36, 24);
     rimGeom.rotateZ(Math.PI / 2);
     const wheelPositions: THREE.Vector3Tuple[] = [
-      [-1.02, 0.43, 1.42],
-      [1.02, 0.43, 1.42],
       [-1.02, 0.43, -1.42],
       [1.02, 0.43, -1.42],
+      [-1.02, 0.43, 1.42],
+      [1.02, 0.43, 1.42],
     ];
     const wheelRoles: Array<"fl" | "fr" | "rl" | "rr"> = ["fl", "fr", "rl", "rr"];
     wheelPositions.forEach((pos, i) => {
@@ -2762,6 +2749,15 @@ export class SurfaceScene implements SceneSlot {
       status: this._status,
       progress: this._progress,
       isLocked: this.controls.isLocked,
+      robotaxiState: this.robotaxiState,
+      robotaxiPhase: this.robotaxiPhase,
+      robotaxiPosition: this.robotaxiRoot.visible
+        ? this.robotaxiRoot.position.clone()
+        : null,
+      robotaxiHeading: this.robotaxiHeading,
+      robotaxiPathProgress: this.robotaxiPathProgress,
+      robotaxiContactY: ROBOTAXI_CONTACT_Y,
+      robotaxiChassisRestY: ROBOTAXI_CHASSIS_REST_Y,
       splatUrl: this._splatUrl,
       splatCount,
       splatPosition: this.splat ? this.splat.position.clone() : null,
@@ -2902,6 +2898,7 @@ export class SurfaceScene implements SceneSlot {
     const N = 384;
     const roadHalfWidth = 2.7;
     const innerHalfWidth = 0.55;
+    const borderOffset = roadHalfWidth + 0.32;
     const verts = new Float32Array(N * 2 * 3);
     const cols = new Float32Array(N * 2 * 3);
     const indices: number[] = [];
@@ -2987,6 +2984,55 @@ export class SurfaceScene implements SceneSlot {
     const roadMesh = new THREE.Mesh(roadGeom, roadMat);
     roadMesh.name = "surface.robotaxi.road";
     this.robotaxiTrackGroup.add(roadMesh);
+
+    // ---- Route borders / guard lines -------------------------------
+    // The generated splat has no physics or reliable terrain edge, so the
+    // authored road is the playable boundary. Draw crisp edge lines just
+    // outside the road ribbon so the player reads the taxi route as a
+    // contained test track instead of an unbounded path into the splat fog.
+    const borderMat = new THREE.LineBasicMaterial({
+      color: 0xf0a83d,
+      transparent: true,
+      opacity: 0.82,
+      depthWrite: false,
+    });
+    [-borderOffset, borderOffset].forEach((offset) => {
+      const borderVerts = new Float32Array((N + 1) * 3);
+      for (let i = 0; i <= N; i++) {
+        const s = centerSamples[i % N];
+        const off = i * 3;
+        borderVerts[off + 0] = s.x + s.sx * offset;
+        borderVerts[off + 1] = SURFACE_DECAL_Y + 0.018;
+        borderVerts[off + 2] = s.z + s.sz * offset;
+      }
+      const borderGeom = new THREE.BufferGeometry();
+      borderGeom.setAttribute("position", new THREE.BufferAttribute(borderVerts, 3));
+      const border = new THREE.Line(borderGeom, borderMat);
+      border.name = `surface.robotaxi.border.${offset > 0 ? "left" : "right"}`;
+      this.robotaxiTrackGroup.add(border);
+    });
+    const bollardGeom = new THREE.BoxGeometry(0.14, 0.42, 0.14);
+    const bollardMat = new THREE.MeshBasicMaterial({
+      color: 0xffb347,
+      transparent: true,
+      opacity: 0.9,
+      depthWrite: false,
+    });
+    const bollardEvery = 18;
+    [-borderOffset, borderOffset].forEach((offset) => {
+      for (let i = 0; i < N; i += bollardEvery) {
+        const s = centerSamples[i];
+        const bollard = new THREE.Mesh(bollardGeom, bollardMat);
+        bollard.name = "surface.robotaxi.borderPost";
+        bollard.position.set(
+          s.x + s.sx * offset,
+          SURFACE_DECAL_Y + 0.21,
+          s.z + s.sz * offset,
+        );
+        bollard.rotation.y = s.yaw;
+        this.robotaxiTrackGroup.add(bollard);
+      }
+    });
 
     // ---- Inner packed-dust strip ---------------------------------
     // Darker centre band 1.1 m wide, sitting just above the road for a
@@ -3728,7 +3774,7 @@ export class SurfaceScene implements SceneSlot {
   };
 
   private readonly onCanvasPointerDown = (): void => {
-    if (this.robotaxiState !== "touring") return;
+    if (this.robotaxiState !== "summoning" && this.robotaxiState !== "touring") return;
     this.requestPointerLock();
   };
 
